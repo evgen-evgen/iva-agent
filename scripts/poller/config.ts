@@ -44,9 +44,10 @@ export const DIRECT_ACCEPTANCE_TIMEOUT_MS =
 export const SETTLE_MS = Number(process.env.TELEGRAM_POLL_SETTLE_MS ?? 1500);
 export const UPDATE_JOB_TTL_MS = 6 * 60 * 60 * 1000;
 
-// Trusted IDs — only they are allowed control commands (/restart etc.).
-export const ALLOWED = new Set(
-  (process.env.TELEGRAM_ALLOWED_USER_IDS ?? "")
+// Owner IDs grant operational controls. Conversation admission is automatic for
+// authenticated users in private chats and is persisted in tenants.sqlite.
+export const OWNERS = new Set(
+  (process.env.TELEGRAM_OWNER_USER_IDS ?? "")
     .split(/[,\s]+/)
     .map((s) => s.trim())
     .filter(Boolean),

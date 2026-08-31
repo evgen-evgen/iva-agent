@@ -7,7 +7,13 @@
 import "./lib/ts-esm-hooks.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -80,6 +86,10 @@ test("правка карточки извне той же длины тоже �
   assert.equal(resolveCard(dir, "Ясмин").matchedBy, "title");
 
   makeCard(dir, "person", "Асель"); // те же пять букв → байт в байт тот же размер
+  // Some hermetic filesystems freeze wall-clock timestamps across immediate writes.
+  // Advance the fixture explicitly: this case verifies the mtime branch, not the host clock.
+  const changedAt = new Date(Date.now() + 1_000);
+  utimesSync(join(dir, "person.md"), changedAt, changedAt);
   assert.equal(
     statSync(join(dir, "person.md")).size,
     Buffer.byteLength(

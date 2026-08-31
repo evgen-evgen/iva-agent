@@ -64,6 +64,32 @@ export async function noticeTranslator(
   return (english, russian) => (lang === "ru" ? russian : english);
 }
 
+/** Resolve a background tenant's language from its explicit data root. */
+export function noticeTranslatorForDataDir(
+  tenantDataDir: string,
+  env: Env = process.env,
+): Translate {
+  let language: unknown;
+  try {
+    const settings: unknown = JSON.parse(
+      readFileSync(join(tenantDataDir, "settings.json"), "utf8"),
+    );
+    language =
+      typeof settings === "object" && settings !== null
+        ? (settings as { language?: unknown }).language
+        : undefined;
+  } catch {
+    language = undefined;
+  }
+  const lang: Language =
+    language === "en" || language === "ru"
+      ? language
+      : env.AGENT_LANGUAGE === "en"
+        ? "en"
+        : "ru";
+  return (english, russian) => (lang === "ru" ? russian : english);
+}
+
 // ── Report: отчёты памяти ────────────────────────────────────────────────────────────────
 // Ключ settings — по образцу digestSchedule: объект, а не голый флаг, чтобы соседние
 // настройки отчётов не пришлось заводить новым ключом верхнего уровня.

@@ -30,7 +30,6 @@ import { join } from "node:path";
 import { dataDir } from "./data-dir.ts";
 import { readSettings } from "./settings.ts";
 import { parentTurnId } from "./usage.ts";
-import { allowedTelegramUsers } from "./telegram-allowlist.ts";
 import { resolveTimeZone } from "./timezone.ts";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -39,6 +38,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export type TraceEvent = {
   ts: string;
+  tenantId?: string;
   turn: string;
   session: string;
   source: string;
@@ -51,6 +51,7 @@ export type TraceEvent = {
 // при captureContent, но его РАЗМЕРЫ (`<ключ>Chars`) остаются в `data` в любом случае:
 // выключенное содержимое не должно превращать ход в набор безымянных точек.
 export type TraceInput = {
+  tenantId?: string;
   kind: string;
   name: string;
   turn?: string;
@@ -210,6 +211,9 @@ function capList(value: readonly unknown[], depth: number): unknown {
 function header(input: TraceInput, now: Date) {
   return {
     ts: now.toISOString(),
+    ...(input.tenantId
+      ? { tenantId: capTraceString(input.tenantId, TRACE_ID_LIMIT) }
+      : {}),
     turn: capTraceString(String(input.turn ?? ""), TRACE_ID_LIMIT),
     session: capTraceString(String(input.session ?? ""), TRACE_ID_LIMIT),
     source: capTraceString(String(input.source ?? ""), TRACE_ID_LIMIT),
@@ -545,9 +549,8 @@ type InboundMessageLike = {
 };
 
 /**
- * Шов Inbound pipeline: апдейт вошёл внутрь. Вердикт allowlist читается из того же
- * источника, что и сам барьер (`allowedTelegramUsers`), поэтому в журнале не может
- * появиться «пропущен» там, где пайплайн отказал.
+ * Шов Inbound pipeline: апдейт вошёл внутрь. Помечаем, может ли аутентифицированный
+ * отправитель стать tenant; сама запись в SQLite делается резолвером.
  */
 export function traceInboundReceived(message: InboundMessageLike): void {
   emit(() => {
@@ -567,7 +570,7 @@ export function traceInboundReceived(message: InboundMessageLike): void {
         chatType: message.chat.type,
         messageId: message.messageId,
         userId,
-        allowlisted: allowedTelegramUsers().has(userId),
+        tenantAdmitted: message.chat.type === "private" && userId.length > 0,
       },
       content: { text },
     };

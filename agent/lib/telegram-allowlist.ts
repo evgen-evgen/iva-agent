@@ -1,15 +1,34 @@
-// БЕЗОПАСНОСТЬ: бот отвечает ТОЛЬКО доверенным Telegram user ID из
-// TELEGRAM_ALLOWED_USER_IDS (через запятую). Это личный ассистент с приватными
-// данными — без allowlist кто угодно мог бы вытащить их. Fail-closed: если список
-// пуст, не пускается никто.
-//
-// Список читается на каждой проверке, а не один раз на загрузке модуля: он
-// крошечный, зато правка окружения не переживает ход в устаревшем виде.
-export function allowedTelegramUsers(): ReadonlySet<string> {
+// Private Telegram users are admitted automatically and persisted in the tenant
+// registry. Environment configuration grants installation ownership only.
+type TelegramAccessEnvironment = {
+  readonly TELEGRAM_OWNER_USER_IDS?: string;
+};
+
+function telegramIds(value: string | undefined): ReadonlySet<string> {
   return new Set(
-    (process.env.TELEGRAM_ALLOWED_USER_IDS ?? "")
+    (value ?? "")
       .split(/[,\s]+/)
       .map((s) => s.trim())
-      .filter(Boolean),
+      .filter((id) => /^[1-9][0-9]*$/u.test(id)),
   );
+}
+
+export function ownerTelegramUsers(
+  env: TelegramAccessEnvironment = process.env,
+): ReadonlySet<string> {
+  return telegramIds(env.TELEGRAM_OWNER_USER_IDS);
+}
+
+export function validateTelegramOwnerConfiguration(
+  env: TelegramAccessEnvironment = process.env,
+): void {
+  const configured = (env.TELEGRAM_OWNER_USER_IDS ?? "")
+    .split(/[,\s]+/u)
+    .map((value) => value.trim())
+    .filter(Boolean);
+  for (const owner of configured) {
+    if (!/^[1-9][0-9]*$/u.test(owner)) {
+      throw new Error(`Invalid Telegram owner ID: ${owner}`);
+    }
+  }
 }

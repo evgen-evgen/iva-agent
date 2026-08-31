@@ -21,6 +21,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { embedText } from "../agent/lib/card-index.ts";
+import { TenantRegistry } from "../agent/lib/tenant-registry.ts";
 
 const VAULT = mkdtempSync(join(tmpdir(), "iva-memsearch-fm-"));
 process.env.ASSISTANT_VAULT_DIR = VAULT;
@@ -317,16 +318,32 @@ test("dense-половина индексирует те же колонки, ч
 // цепочка card-index → frontmatter → card-text обязана резолвиться как есть.
 test("embed-index грузится голым node", () => {
   const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const dataDir = mkdtempSync(join(tmpdir(), "iva-embed-load-"));
+  const registry = new TenantRegistry(join(dataDir, "tenants.sqlite"));
+  const record = registry.create({
+    authenticator: "telegram-bot",
+    issuer: "telegram",
+    externalPrincipal: "telegram:embed-load",
+  });
+  registry.close();
   const result = spawnSync(
     process.execPath,
-    [join(root, "scripts/memory/embed-index.ts")],
+    [
+      join(root, "scripts/memory/embed-index.ts"),
+      "--tenant-id",
+      record.tenantId,
+    ],
     {
       cwd: root,
       encoding: "utf8",
-      env: { PATH: process.env.PATH ?? "" },
+      env: {
+        PATH: process.env.PATH ?? "",
+        ASSISTANT_DATA_DIR: dataDir,
+      },
       timeout: 30_000,
     },
   );
+  rmSync(dataDir, { recursive: true, force: true });
 
   assert.equal(result.error, undefined);
   assert.equal(result.status, 0);

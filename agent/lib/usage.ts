@@ -23,6 +23,7 @@ import { dataDir } from "./data-dir.ts";
 
 export interface UsageRecord {
   ts: string;
+  tenantId?: string;
   source: string;
   provider: string;
   model: string;

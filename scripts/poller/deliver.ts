@@ -9,7 +9,7 @@ import {
   ROUTE,
   ACCEPTANCE_ROUTE,
   SECRET,
-  ALLOWED,
+  OWNERS,
   SETTLE_MS,
   sleep,
   log,
@@ -229,7 +229,7 @@ async function deliver(
 const deliverNotified = new Set();
 async function notifyDeliverProblem(kind: string, status: unknown) {
   if (deliverNotified.has(kind)) return;
-  const target = process.env.TELEGRAM_DIGEST_CHAT_ID || [...ALLOWED][0];
+  const target = process.env.TELEGRAM_DIGEST_CHAT_ID || [...OWNERS][0];
   if (!target) return;
   const text =
     kind === "config"

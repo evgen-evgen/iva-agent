@@ -13,9 +13,34 @@ import { test } from "node:test";
 import { spawn, spawnSync } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { z } from "zod";
+import { TenantRegistry } from "../agent/lib/tenant-registry.ts";
+import { reconcileTelegramTenants } from "../agent/lib/telegram-tenant-provisioning.ts";
+
+const CAPABILITY_DATA = mkdtempSync(join(tmpdir(), "iva-bash-owner-"));
+process.env.ASSISTANT_DATA_DIR = CAPABILITY_DATA;
+process.env.TELEGRAM_ALLOWED_USER_IDS = "101";
+process.env.TELEGRAM_OWNER_USER_IDS = "101";
+const capabilityRegistry = new TenantRegistry(
+  join(CAPABILITY_DATA, "tenants.sqlite"),
+);
+reconcileTelegramTenants(capabilityRegistry);
+capabilityRegistry.close();
+process.on("exit", () =>
+  rmSync(CAPABILITY_DATA, { recursive: true, force: true }),
+);
+const OWNER_AUTH = {
+  attributes: {},
+  authenticator: "telegram-bot",
+  issuer: "telegram",
+  principalId: "telegram:101",
+  principalType: "user",
+};
+const OWNER_CONTEXT = {
+  session: { auth: { current: OWNER_AUTH, initiator: OWNER_AUTH } },
+};
 
 const {
-  default: bash,
+  bashTool: bash,
   deadlineWorkerRuntime,
   MAX_TIMEOUT_MS,
   MIN_TIMEOUT_MS,
@@ -33,8 +58,11 @@ type BashResult = {
 
 async function executeBash(input: BashInput): Promise<BashResult> {
   return await (
-    bash.execute as unknown as (input: BashInput) => Promise<BashResult>
-  )(input);
+    bash.execute as unknown as (
+      input: BashInput,
+      context: typeof OWNER_CONTEXT,
+    ) => Promise<BashResult>
+  )(input, OWNER_CONTEXT);
 }
 
 const inputSchema = bash.inputSchema;
@@ -143,16 +171,21 @@ async function runWithExhaustedFileDescriptors(): Promise<{
 }> {
   const script = String.raw`
     import { closeSync, openSync } from "node:fs";
-    const { default: bash } = await import("./agent/tools/bash.ts");
+    const { bashTool: bash } = await import("./agent/tools/bash.ts");
+    const auth = ${JSON.stringify(OWNER_AUTH)};
+    const context = { session: { auth: { current: auth, initiator: auth } } };
     const descriptors = [];
     try {
       while (true) descriptors.push(openSync("/dev/null", "r"));
     } catch (error) {
       if (error?.code !== "EMFILE") throw error;
     }
+    // Tenant authorization opens the registry before bash reaches spawn. Leave four
+    // descriptors for that lookup; spawning with two result pipes still has too few.
+    for (let index = 0; index < 4; index++) closeSync(descriptors.pop());
     let result;
     try {
-      result = await bash.execute({ command: ":", timeoutMs: 1_000 });
+      result = await bash.execute({ command: ":", timeoutMs: 1_000 }, context);
     } finally {
       for (const descriptor of descriptors) closeSync(descriptor);
     }

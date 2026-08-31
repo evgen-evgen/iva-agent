@@ -17,7 +17,7 @@ import {
   parseFrontmatter,
   writeFrontmatter,
   type FmFields,
-} from "./frontmatter.js";
+} from "./frontmatter.ts";
 
 export { outsideFences } from "./card-text.ts";
 

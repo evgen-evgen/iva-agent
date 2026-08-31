@@ -10,12 +10,15 @@ import { POST } from "eve/channels";
 import {
   noticeSender,
   sendThroughOutbox,
+  type NoticeSend,
   type OutboxTransport,
 } from "../lib/outbox.js";
 // Inbound-пайплайн — единственный вход внутрь: allowlist, решение о диспатче,
 // запись в Vault, медиа со зрением и транскрипцией, inbound-Gate и контекст хода.
 // Канал приносит ему эффекты и сам про разбор входящего ничего не знает.
 import { runTelegramInbound } from "../lib/telegram-inbound.js";
+import { resolveTelegramTenant } from "../lib/telegram-tenant-resolver.js";
+import { tenantContextFromSession } from "../lib/tenant-session.js";
 import { traceOutbox } from "../lib/trace.js";
 import { chatModelSeesImages, describeImage } from "../vision.js";
 import { transcribe } from "../transcribe.js";
@@ -143,6 +146,30 @@ function outboxTransport(
   };
 }
 
+function failureDiagnosticSender(
+  telegram: Pick<TelegramHandle, "chatId" | "request">,
+): NoticeSend | undefined {
+  const target = String(process.env.TELEGRAM_DIAGNOSTIC_CHAT_ID ?? "").trim();
+  if (!target) return undefined;
+  if (target === String(telegram.chatId)) {
+    console.error(
+      "[telegram] TELEGRAM_DIAGNOSTIC_CHAT_ID points at the failing user chat; technical details were not sent",
+    );
+    return undefined;
+  }
+  return noticeSender(async (text) => {
+    const response = await telegram.request("sendMessage", {
+      chat_id: target,
+      text,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `diagnostic sendMessage failed: ${response.status} ${JSON.stringify(response.body).slice(0, 300)}`,
+      );
+    }
+  });
+}
+
 // Пульс живого хода в run-status: без него жнец моста снимал молчаливый длинный ход
 // как протухший (agent/lib/telegram-turn-start.ts).
 function keepTurnAlive(
@@ -202,6 +229,7 @@ const telegram = telegramChannel({
         continuationToken: toChannelLocalToken(channel.continuationToken),
         sessionId: ctx.session.id,
         turnId: data.turnId,
+        vaultRoot: tenantContextFromSession(ctx).vaultRoot,
         getStatusImpl: getChatStatus,
         setStatusIfImpl: setChatStatusIf,
         sendWorkingStatusImpl: (options) => sendWorkingStatus(tg, options),
@@ -302,6 +330,7 @@ const telegram = telegramChannel({
         ctx.session.id,
         data,
         noticeSender((text) => channel.telegram.sendMessage(text)),
+        { diagnosticSend: failureDiagnosticSender(channel.telegram) },
       );
     },
     // У terminal-сбоя eve следом за turn.failed шлёт session.failed без ctx.
@@ -318,6 +347,7 @@ const telegram = telegramChannel({
         data.sessionId,
         data,
         noticeSender((text) => channel.telegram.sendMessage(text)),
+        { diagnosticSend: failureDiagnosticSender(channel.telegram) },
       );
     },
   },
@@ -328,6 +358,7 @@ const telegram = telegramChannel({
     let earlyIngressId: string | null = null;
     return runTelegramInbound(message, {
       botUsername: tg.botUsername,
+      resolveTenant: resolveTelegramTenant,
       request: (method, body) => tg.request(method, body),
       sendMessage: noticeSender((text) => tg.sendMessage(text)),
       startTyping: () => tg.startTyping(),

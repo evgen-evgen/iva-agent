@@ -60,7 +60,7 @@ type TelegramTransport = (
   params: Record<string, unknown>,
 ) => Promise<unknown>;
 type MenuDeps = {
-  allowed?: ReadonlySet<string>;
+  owners?: ReadonlySet<string>;
   deliver(update: TelegramQueueUpdate): MaybePromise<unknown>;
   admitSynthetic(update: TelegramQueueUpdate): MaybePromise<boolean>;
   handleModelCmd(
@@ -130,7 +130,7 @@ type MenuOptions = {
   deps: MenuDeps;
   screens?: ScreenRegistry;
 };
-type OpenOptions = { msgId?: number };
+type OpenOptions = { msgId?: number; owner?: boolean };
 
 function isMenuAwaitText(value: unknown): value is MenuAwaitText {
   return (
@@ -231,10 +231,7 @@ export function createMenu({
       () => {},
     );
     if (!isPrivateTelegramChat(cq.message?.chat)) return true;
-    // Не-allowlisted тап глотаем ПОСЛЕ ack (mirror :563): флоу существует только у того,
-    // кто прошёл гейт /menu, поэтому чужой тап и так не имеет стейта — но глушим явно.
-    const allowed = deps.allowed;
-    if (!allowed || allowed.size === 0 || !allowed.has(userId)) return true;
+    if (!userId) return true;
     if (typeof cq.data !== "string" || !cq.data.startsWith(PREFIX)) return true;
     if (chatId === undefined || messageId === undefined) return true;
 
@@ -290,6 +287,7 @@ export function createMenu({
           screen: sid,
           page: 0,
           msgId: messageId,
+          owner: deps.owners?.has(userId) ?? true,
         });
       } else {
         const mod = screens[sid] as MenuScreen | undefined;
@@ -438,6 +436,7 @@ export function createMenu({
       screen: "r",
       page: 0,
       msgId: opts.msgId ?? null,
+      owner: opts.owner ?? deps.owners?.has(uid) ?? true,
     });
     await renderScreen(st);
     return st;

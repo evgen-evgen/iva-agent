@@ -238,7 +238,9 @@ test("узкий scope не выбрасывает из кэша карточк�
   const before = { ...cacheStats };
   await searchMemory({ query: "монтаж", scope: ["cards"] });
   assert.equal(cacheStats.fileReads - before.fileReads, 0);
-  assert.equal(cacheStats.indexBuilds - before.indexBuilds, 1);
+  // Кэш теперь держится per-signature: это не только ускорение, но и запрет на
+  // переиспользование одного mutable FTS handle между tenant vaults.
+  assert.equal(cacheStats.indexBuilds - before.indexBuilds, 0);
 
   // Повтор того же scope — ни чтений, ни пересборки.
   const repeat = { ...cacheStats };

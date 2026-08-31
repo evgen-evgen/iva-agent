@@ -103,3 +103,18 @@ test("root exposes the top-level screen contract", () => {
   assert.equal(root.parent, null);
   assert.equal(root.on("ignored", [], {}, makeCtx("en")), undefined);
 });
+
+test("ordinary root exposes only tenant personalization", () => {
+  const view = root.render({ owner: false }, makeCtx("en"));
+  assert.deepEqual(compact(view.rows), [
+    [
+      ["🎭 Character", "iva_menu:chr:o"],
+      ["💾 Memory", "iva_menu:core:o"],
+    ],
+    [["✖ Close", "iva_menu:r:x"]],
+  ]);
+  assert.doesNotMatch(
+    JSON.stringify(view.rows),
+    /Model|Thinking|Userbot|Google|Maintenance|Status/u,
+  );
+});

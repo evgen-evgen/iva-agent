@@ -21,7 +21,7 @@ import {
   summarize,
 } from "../lib/usage.ts";
 import {
-  ALLOWED,
+  OWNERS,
   BOT_USER_ID,
   CANCEL_ROUTE,
   DATA_DIR,
@@ -48,7 +48,10 @@ import {
 } from "./wizards.ts";
 import { createMenu } from "../lib/menu/index.ts";
 import { admitTelegramUpdate } from "./inbox.ts";
-import { isPrivateTelegramChat } from "#lib/telegram-private-chat.ts";
+import {
+  isPrivateTelegramActor,
+  isPrivateTelegramChat,
+} from "#lib/telegram-private-chat.ts";
 
 type ControlCallbackQuery = TelegramCallbackQuery & { data: string };
 type PendingFlow = {
@@ -176,6 +179,39 @@ export const OUT_OF_BAND_COMMANDS = [
   "/think",
 ];
 
+export const OWNER_ONLY_COMMANDS = new Set([
+  "/usage",
+  "/restart",
+  "/update",
+  "/model",
+  "/think",
+]);
+
+export const OWNER_ONLY_MENU_SIDS = new Set([
+  "mdl",
+  "thk",
+  "srch",
+  "lang",
+  "ub",
+  "gws",
+  "cron",
+  "ntc",
+  "sk",
+  "st",
+  "svc",
+]);
+
+function menuCallbackOwnerOnly(data: string): boolean {
+  if (!data.startsWith("iva_menu:")) return false;
+  return OWNER_ONLY_MENU_SIDS.has(data.slice("iva_menu:".length).split(":")[0]);
+}
+
+const ownerOnlyText = () =>
+  tr(
+    "This control is available only to the installation owner.",
+    "Эта команда доступна только владельцу установки.",
+  );
+
 // Подтверждение нажатия: гасит спиннер кнопки и показывает всплывающую подсказку.
 // Ошибки глотаем — сама отмена уже отправлена, а протухший callback_query_id Telegram
 // отвергает штатно.
@@ -193,8 +229,6 @@ const privateChatOnlyText = () =>
     "Open a private chat with me to use this control.",
     "Открой личный чат со мной, чтобы использовать это управление.",
   );
-
-const PRIVATE_ONLY_COMMANDS = new Set(["/menu", "/model", "/think"]);
 
 // ⏹ Стоп: кнопка статус-сообщения и /stop. В long-poll обе двери ведут сюда, в мост:
 // он перехватывает апдейт раньше любой доставки, поэтому «Стоп» доходит и до занятого
@@ -225,7 +259,7 @@ async function requestTurnStop(
 }
 
 // Движок /menu: делит session-store (flows) с визардами /model//think. deps — мост отдаёт
-// экранам всё нужное (пути, systemctl, доставку в eve, allowlist, хендофф в визарды).
+// экранам всё нужное (пути, systemctl, доставку в eve, owner role, хендофф в визарды).
 const menu = createMenu({
   flows,
   tg,
@@ -244,7 +278,7 @@ const menu = createMenu({
         (result) => result === "owned",
       ),
     log,
-    allowed: ALLOWED,
+    owners: OWNERS,
     handleModelCmd,
     handleThinkCmd,
     handleUpdateCheck,
@@ -255,11 +289,24 @@ const menu = createMenu({
 // language_code:"ru"). Идемпотентно, зовётся на каждом старте моста; ошибки нефатальны.
 async function registerBotCommands() {
   try {
-    await tg("setMyCommands", { commands: botCommands("en") });
     await tg("setMyCommands", {
-      commands: botCommands("ru"),
+      commands: botCommands("en", { owner: false }),
+    });
+    await tg("setMyCommands", {
+      commands: botCommands("ru", { owner: false }),
       language_code: "ru",
     });
+    for (const owner of OWNERS) {
+      const chatId = Number(owner);
+      if (!Number.isSafeInteger(chatId)) continue;
+      const scope = { type: "chat", chat_id: chatId };
+      await tg("setMyCommands", { commands: botCommands("en"), scope });
+      await tg("setMyCommands", {
+        commands: botCommands("ru"),
+        language_code: "ru",
+        scope,
+      });
+    }
   } catch (e: unknown) {
     log("setMyCommands failed:", errorDetails(e).message);
   }
@@ -384,13 +431,17 @@ async function handleControl(
       callback.data.startsWith("iva_think:") ||
       callback.data.startsWith("iva_menu:");
     const callbackFrom = String(callback.from?.id ?? "");
-    const callbackAllowed = ALLOWED.size > 0 && ALLOWED.has(callbackFrom);
+    const callbackOwner = OWNERS.has(callbackFrom);
     if (
       isLocalCallback &&
-      callbackAllowed &&
-      !isPrivateTelegramChat(callback.message?.chat)
+      !isPrivateTelegramActor(callback.message?.chat, callback.from?.id)
     ) {
-      await ackImpl(callback.id, privateChatOnlyText()).catch(() => {});
+      await ackImpl(
+        callback.id,
+        callback.message?.chat?.type === "private"
+          ? undefined
+          : privateChatOnlyText(),
+      ).catch(() => {});
       return true;
     }
     // ⏹ Стоп у статус-сообщения. Тап никогда не уходит в eve: колбэк наш, а отмену
@@ -401,24 +452,29 @@ async function handleControl(
     // onCallbackQuery канала — дефолтная ветка eve «Unsupported action.» из-за него
     // отключена, поэтому спиннер гасит сам канал пустым answerCallbackQuery.
     if (callback.data === TELEGRAM_STOP_CALLBACK) {
-      const from = String(callback.from?.id ?? "");
-      // Чужой тап в группе: гасим спиннер молча и ничего не отменяем.
-      if (ALLOWED.size === 0 || !ALLOWED.has(from)) {
-        return telegramCallSucceeded(await ackImpl(callback.id));
-      }
       const outcome = await requestTurnStop(update, { cancelImpl });
       const acknowledged = telegramCallSucceeded(
         await ackImpl(callback.id, stopOutcomeText(outcome)),
       );
       return outcome === "requested" || acknowledged;
     }
-    if (updateCallback !== null) return handleUpdateCallback(callback);
+    if (updateCallback !== null) {
+      if (!callbackOwner) {
+        await ackImpl(callback.id, ownerOnlyText()).catch(() => {});
+        return true;
+      }
+      return handleUpdateCallback(callback);
+    }
     // Wizard errors must not escape and crash the bridge. A failed handler returns
     // false so the callback enters durable inbox ownership before offset advances.
     if (
       callback.data.startsWith("iva_model:") ||
       callback.data.startsWith("iva_think:")
     ) {
+      if (!callbackOwner) {
+        await ackImpl(callback.id, ownerOnlyText()).catch(() => {});
+        return true;
+      }
       return handleWizardCallback(callback).catch((e: unknown) => {
         log("wizard callback error:", errorDetails(e).message);
         return false;
@@ -426,6 +482,10 @@ async function handleControl(
     }
     // /menu: тот же принцип consume-on-error — тап меню всегда проглатывается (в eve не уходит).
     if (callback.data.startsWith("iva_menu:")) {
+      if (menuCallbackOwnerOnly(callback.data) && !callbackOwner) {
+        await ackImpl(callback.id, ownerOnlyText()).catch(() => {});
+        return true;
+      }
       return menu.onCallback(callback, update.update_id).catch((e: unknown) => {
         log("menu callback error:", errorDetails(e).message);
         return true;
@@ -444,6 +504,14 @@ async function handleControl(
     const pending = getWizard(msg.chat?.id, String(msg.from.id));
     const a = isAwaitText(pending?.awaitText) ? pending.awaitText : null;
     if (pending && a) {
+      const pendingOwnerOnly =
+        pending.flow !== "menu" ||
+        (typeof pending.screen === "string" &&
+          OWNER_ONLY_MENU_SIDS.has(pending.screen));
+      if (pendingOwnerOnly && !OWNERS.has(String(msg.from.id))) {
+        await endWizard(pending, ownerOnlyText()).catch(() => {});
+        return true;
+      }
       if (text.startsWith("/")) {
         await endWizard(
           pending,
@@ -483,24 +551,28 @@ async function handleControl(
   const cmd = text.split(/\s+/)[0].replace(/@\w+$/, "").toLowerCase();
   if (!OUT_OF_BAND_COMMANDS.includes(cmd)) return false;
   const from = String(msg?.from?.id ?? "");
-  if (ALLOWED.size === 0 || !ALLOWED.has(from)) return false; // untrusted — let eve drop it
   const chatId = msg?.chat?.id;
   if (chatId === undefined) return false;
-  if (PRIVATE_ONLY_COMMANDS.has(cmd) && !isPrivateTelegramChat(msg?.chat)) {
+  if (!isPrivateTelegramActor(msg?.chat, msg?.from?.id)) {
     await replyImpl(chatId, privateChatOnlyText()).catch((e: unknown) =>
       log("private-chat rejection failed:", errorMessage(e)),
     );
     return true;
   }
+  if (OWNER_ONLY_COMMANDS.has(cmd) && !OWNERS.has(from)) {
+    return replySucceeded(await replyImpl(chatId, ownerOnlyText()));
+  }
   // /menu — open the nested settings menu (out-of-band; errors consumed, never reach eve).
   if (cmd === "/menu") {
     await menu
-      .open(chatId, from)
+      .open(chatId, from, { owner: OWNERS.has(from) })
       .catch((e: unknown) => log("menu error:", errorDetails(e).message));
     return true;
   }
   if (cmd === "/help") {
-    return replySucceeded(await replyImpl(chatId, helpText()));
+    return replySucceeded(
+      await replyImpl(chatId, helpText({ owner: OWNERS.has(from) })),
+    );
   }
   // /start — кнопка Start у нового пользователя. Без этой ветки приветствие уходило
   // обычным ходом в модель: платный запрос ради «привет». Отвечает мост, out-of-band.

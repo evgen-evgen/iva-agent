@@ -6,12 +6,30 @@ import { Client } from "eve/client";
 import { tr } from "#lib/i18n.ts";
 import { writtenInLanguage } from "./lib/notice-policy.ts";
 import { sendTelegramHtml } from "./lib/telegram-send.ts";
+import { join } from "node:path";
+import { readSettings } from "#lib/settings.ts";
+import {
+  resolveTenantJobTarget,
+  tenantGrantHeaders,
+} from "../agent/lib/tenant-job-target.ts";
+
+const TARGET = resolveTenantJobTarget(process.argv.slice(2));
 
 const PORT = process.env.IVA_PORT ?? "8723";
 const HOST = process.env.ASSISTANT_HOST ?? `http://127.0.0.1:${PORT}`;
 const BOT = process.env.TELEGRAM_BOT_TOKEN;
-const CHAT = process.env.TELEGRAM_DIGEST_CHAT_ID;
+const CHAT = TARGET.record.telegramDestination;
 const BEARER = process.env.ASSISTANT_BEARER; // needed if the eve channel in prod requires auth
+
+const settings = readSettings(
+  join(TARGET.context.dataRoot, "settings.json"),
+) as {
+  digestSchedule?: { enabled?: boolean };
+};
+if (settings.digestSchedule?.enabled !== true) {
+  console.log(`Digest is disabled for tenant ${TARGET.context.tenantId}.`);
+  process.exit(0);
+}
 
 if (!BOT || !CHAT) {
   console.error("TELEGRAM_BOT_TOKEN and TELEGRAM_DIGEST_CHAT_ID are required");
@@ -21,6 +39,7 @@ if (!BOT || !CHAT) {
 const client = new Client({
   host: HOST,
   ...(BEARER ? { auth: { bearer: () => Promise.resolve(BEARER) } } : {}),
+  headers: tenantGrantHeaders(TARGET, "digest", BEARER),
 });
 
 const session = client.session();

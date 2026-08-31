@@ -50,12 +50,20 @@ For `codex` there is no API key in `.env`: run `iva login` (device code, headles
 | `TELEGRAM_BOT_TOKEN`            | —         | From [@BotFather](https://t.me/BotFather).                                                                                 |
 | `TELEGRAM_BOT_USERNAME`         | —         | Your bot's username. The wizard verifies the token via `getMe` and detects this itself.                                    |
 | `TELEGRAM_WEBHOOK_SECRET_TOKEN` | —         | Shared secret between the long-poll bridge and the local webhook. Any long random string.                                  |
-| `TELEGRAM_ALLOWED_USER_IDS`     | _(empty)_ | Comma-separated numeric user IDs allowed to talk to Iva.                                                                   |
+| `TELEGRAM_OWNER_USER_IDS`       | _(empty)_ | Telegram ID allowed to use operational controls. Other private users become isolated ordinary tenants automatically.       |
 | `TELEGRAM_DIGEST_CHAT_ID`       | —         | Chat that receives the morning digest, nightly memory reports and one-time stable update offers. Usually your own chat ID. |
+| `TELEGRAM_DIAGNOSTIC_CHAT_ID`   | _(empty)_ | Separate private channel for technical turn-failure details. The bot must be an administrator; never set this to a user chat. |
 
-The allowlist is **fail-closed: empty means Iva answers nobody.** The wizard auto-discovers your ID the moment you message the bot; or ask [@userinfobot](https://t.me/userinfobot). Why fail-closed matters: [security.md](./security.md).
+The wizard auto-discovers the owner ID when you message the bot; or ask [@userinfobot](https://t.me/userinfobot). Any authenticated private user may start a separate tenant, but only the owner receives operational controls.
 
-At 10:00 in `ASSISTANT_TIMEZONE` Iva checks Git upstream without using the model. It sends nothing unless a higher stable `MAJOR.MINOR.PATCH` version exists, and offers each version only once. If `TELEGRAM_DIGEST_CHAT_ID` is empty, the first trusted ID is used.
+On a failed turn, the user receives only a generic stopped-process notice. Provider text,
+error IDs and technical diagnostics are sent only to `TELEGRAM_DIAGNOSTIC_CHAT_ID`. If it
+is empty or equals the failing user chat, no technical detail is sent to Telegram and the
+service journal remains the source of diagnostics.
+
+Tenant identity, private-chat-only behavior, storage layout, migration, and backup are documented in [Telegram tenants and storage](./tenant-storage.md).
+
+At 10:00 in `ASSISTANT_TIMEZONE` Iva checks Git upstream without using the model. It sends nothing unless a higher stable `MAJOR.MINOR.PATCH` version exists, and offers each version only once. If `TELEGRAM_DIGEST_CHAT_ID` is empty, the owner ID is used.
 
 ## Voice
 
@@ -103,8 +111,8 @@ Alerts — problems (memory not backed up, a failed nightly pass) and new versio
 | -------------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `AGENT_LANGUAGE`           | `ru`                           | `en` or `ru`. Sets Iva's reply language, date locale, and which CORE.md seed `init-vault` uses. The **🌐 Language** button in `/menu` overrides it at runtime via `data/settings.json` (read fresh every turn) and mirrors the choice back here, so the switch is instant — no restart ([menu.md](./menu.md)). |
 | `ASSISTANT_TIMEZONE`       | `Asia/Almaty`                  | IANA name. Sets daily-transcript dates, two systemd watchdog timers, five in-process eve schedules, and the date/time Iva sees each turn. Exported as `TZ`.                                                                                                                                                    |
-| `ASSISTANT_VAULT_DIR`      | `vault`                        | The live memory: a separate private git repo, opens in Obsidian.                                                                                                                                                                                                                                               |
-| `ASSISTANT_DATA_DIR`       | `data`                         | Runtime data: `tasks.json`, token log `usage.jsonl`.                                                                                                                                                                                                                                                           |
+| `ASSISTANT_VAULT_DIR`      | `vault`                        | Legacy single-user vault source used by the owner migration; live tenant vaults are under `ASSISTANT_DATA_DIR/tenants/`.                                                                                                                                                                                       |
+| `ASSISTANT_DATA_DIR`       | `data`                         | Tenant registry/roots plus installation-global operational trace and usage logs.                                                                                                                                                                                                                               |
 | `IVA_PORT`                 | `8723`                         | Local eve server port. Deliberately unfashionable — 3000/8000/8080 are usually taken on a stock VPS by docker and friends. Change it via `iva config`, not by hand: the systemd unit pins the port literally and must match ([deploy.md](./deploy.md)).                                                        |
 | `ASSISTANT_HOST`           | `http://127.0.0.1:${IVA_PORT}` | Where the poll bridge and memory scripts reach the server. Change only if the agent runs on another host.                                                                                                                                                                                                      |
 | `ASSISTANT_BEARER`         | _(generated)_                  | Shared secret required by Eve session routes. Setup/upgrades create it; local clients read it automatically. Keep it private.                                                                                                                                                                                  |

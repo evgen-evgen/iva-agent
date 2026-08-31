@@ -7,10 +7,32 @@
 // `Property failed after N tests { seed: -1234567, path: "12:3:0", endOnFailure: true }`.
 // Подставь её вторым аргументом — fc.assert(prop, { seed: -1234567, path: "12:3:0" }) —
 // и прогон повторится байт в байт, включая shrink.
+/* eslint-disable @typescript-eslint/no-floating-promises -- Node's test runner owns registrations. */
 import test from "node:test";
 import assert from "node:assert/strict";
 import fc from "fast-check";
-import { imageMediaType, imageRefsIn } from "./attachment-ref.ts";
+import {
+  attachmentImageMediaType,
+  attachmentReference,
+  attachmentRefsIn,
+  imageMediaType,
+  imageRefsIn,
+} from "./attachment-ref.ts";
+
+test("opaque attachment references expose no tenant or host path", () => {
+  const first = "att_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const second = "att_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  assert.equal(attachmentReference(first), `attachment:${first}`);
+  assert.deepEqual(
+    attachmentRefsIn(
+      `attachment:${first} /tmp/attachments/secret.jpg attachment:${second} attachment:${first}`,
+    ),
+    [first, second],
+  );
+  assert.throws(() => attachmentReference("../secret"));
+  assert.equal(attachmentImageMediaType("image/jpeg", null), "image/jpeg");
+  assert.equal(attachmentImageMediaType(null, "scan.PNG"), "image/png");
+});
 
 const SEED = 20_260_827;
 const RUNS = 400;

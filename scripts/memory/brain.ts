@@ -22,21 +22,21 @@ import {
 import {
   alertOnce,
   alertResolved,
-  noticeTranslator,
+  noticeTranslatorForDataDir,
 } from "../lib/notice-policy.ts";
-import { notificationChat } from "../lib/notification-chat.ts";
 import { redactNotice } from "../lib/notice.ts";
-import { resolveDataDir } from "../lib/data-dir.ts";
 import { resolveTimeZone } from "../lib/timezone.ts";
+import { resolveTenantJobTarget } from "../../agent/lib/tenant-job-target.ts";
 
-const VAULT = resolve(process.env.ASSISTANT_VAULT_DIR ?? "vault");
-const DATA_DIR = resolveDataDir(process.cwd());
+const TARGET = resolveTenantJobTarget(process.argv.slice(2));
+const VAULT = TARGET.context.vaultRoot;
+const DATA_DIR = TARGET.context.dataRoot;
 // The autograph code lives in THIS repo, not in the vault: the vault is user data only.
 // Absolute paths, because every script is spawned with cwd = VAULT (they take "." as the vault).
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const SCRIPTS = resolve(ROOT, "scripts/autograph");
 const BOT = process.env.TELEGRAM_BOT_TOKEN;
-const CHAT = notificationChat(); // admin chat
+const CHAT = TARGET.record.telegramDestination ?? "";
 const TZ = resolveTimeZone(process.env.ASSISTANT_TIMEZONE);
 
 function shellQuote(value: string): string {
@@ -219,7 +219,7 @@ async function loadCardTools(): Promise<CardTools | null> {
 const today = localDate();
 // Language of every line below. Resolved once per run: the nightly pass is minutes long,
 // and a translator is a function, so no translated string is frozen in a module constant.
-const T = await noticeTranslator();
+const T = noticeTranslatorForDataDir(DATA_DIR);
 console.log(`=== brain for ${today} (vault: ${VAULT}) ===`);
 
 // ── 0. Schema location: vault root, with a one-time migration off the legacy path ──
@@ -335,7 +335,12 @@ if (process.env.MEMORY_SEARCH_MODE === "hybrid") {
   // nvm node dir, so spawning "node" by name fails with ENOENT and falsely reports a failure.
   const r = run(
     process.execPath,
-    ["--env-file=.env", "scripts/memory/embed-index.ts"],
+    [
+      "--env-file=.env",
+      "scripts/memory/embed-index.ts",
+      "--tenant-id",
+      TARGET.context.tenantId,
+    ],
     process.cwd(),
   );
   if (r.status !== 0) failures.push("embed-index");

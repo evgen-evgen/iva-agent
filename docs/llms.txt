@@ -14,7 +14,7 @@ curl -fsSL https://raw.githubusercontent.com/smixs/iva-agent/main/install.sh | b
 - [Install](https://iva-agent.com/install.md): One command on a fresh Ubuntu VPS — requirements, what install.sh does, flags, and the bot's first message
 - [Configuration](https://iva-agent.com/configuration.md): Every .env variable and the setup wizard (`iva config`)
 - [Memory](https://iva-agent.com/memory.md): The layered vault — daily transcripts, nightly rollups, typed cards, CORE.md, BM25 + graph search
-- [Security & privacy](https://iva-agent.com/security.md): Inbound injection screening, outbound secret redaction, fail-closed user allowlist
+- [Security & privacy](https://iva-agent.com/security.md): Inbound injection screening, outbound secret redaction, isolated private Telegram tenants and owner-only controls
 - [Providers & cost](https://iva-agent.com/providers.md): Every external service Iva talks to, with real prices — models, transcription, vision, search
 - [Deploy](https://iva-agent.com/deploy.md): Two systemd user services, two watchdog timers, and five in-process Eve schedules, plus long polling, updates, and backups
 - [Command reference](https://iva-agent.com/cli.md): Telegram slash commands and the `iva` CLI

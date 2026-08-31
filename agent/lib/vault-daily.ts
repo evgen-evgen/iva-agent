@@ -37,9 +37,13 @@ export function localStamp(): VaultStamp {
 
 // Возвращает путь дневного файла: он же ссылка на полную запись, когда гейт
 // усёк вход для модели.
-export function appendDaily(type: string, content: string): string {
+export function appendDaily(
+  vaultRoot: string,
+  type: string,
+  content: string,
+): string {
   const { date, hhmm } = localStamp();
-  const dir = join(process.env.ASSISTANT_VAULT_DIR || "vault", "daily");
+  const dir = join(vaultRoot, "daily");
   mkdirSync(dir, { recursive: true });
   // Append-only: существующие записи никогда не переписываются.
   const path = join(dir, `${date}.md`);
@@ -64,6 +68,7 @@ function attExt(
 // Сохраняет блоб в vault/attachments/<date>/<name>, возвращает rel-путь для Obsidian-embed.
 // Имя берём из присланного (санитизируем), иначе <kind>-<hhmmss>.<ext>; коллизии нумеруем.
 export function saveBlob(
+  vaultRoot: string,
   bytes: ArrayBuffer,
   name: string | undefined,
   kind: string,
@@ -78,11 +83,7 @@ export function saveBlob(
     .replace(/-+$/, "");
   let fname =
     safe && /\.[a-z0-9]+$/.test(safe) ? safe : `${kind}-${stamp.hhmmss}.${ext}`;
-  const dir = join(
-    process.env.ASSISTANT_VAULT_DIR || "vault",
-    "attachments",
-    stamp.date,
-  );
+  const dir = join(vaultRoot, "attachments", stamp.date);
   mkdirSync(dir, { recursive: true });
   const dot = fname.lastIndexOf(".");
   const base = dot > 0 ? fname.slice(0, dot) : fname;

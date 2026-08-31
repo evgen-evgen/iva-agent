@@ -44,7 +44,7 @@ void test("the digest chat receives the argument tail joined by single spaces", 
   const notify = notifyCommand({
     TELEGRAM_BOT_TOKEN: "bot-token",
     TELEGRAM_DIGEST_CHAT_ID: "555",
-    TELEGRAM_ALLOWED_USER_IDS: "777,888",
+    TELEGRAM_OWNER_USER_IDS: "777,888",
   });
 
   await notify.cmdNotify(["Позвонить", "врачу", "в", "17:00"]);
@@ -56,11 +56,11 @@ void test("the digest chat receives the argument tail joined by single spaces", 
   assert.deepEqual(notify.messages, ["Sent to Telegram"]);
 });
 
-void test("without a digest chat the first allowed user gets the message", async () => {
+void test("without a digest chat the owner gets the message", async () => {
   const notify = notifyCommand({
     TELEGRAM_BOT_TOKEN: "bot-token",
     TELEGRAM_DIGEST_CHAT_ID: "  ",
-    TELEGRAM_ALLOWED_USER_IDS: " 42, 43",
+    TELEGRAM_OWNER_USER_IDS: " 42, 43",
   });
 
   await notify.cmdNotify(["напоминание"]);
@@ -89,10 +89,10 @@ void test("empty text, a missing token and a missing chat all fail before the ne
       args: ["текст"],
       env: {
         TELEGRAM_BOT_TOKEN: "bot-token",
-        TELEGRAM_ALLOWED_USER_IDS: " , ",
+        TELEGRAM_OWNER_USER_IDS: " , ",
       },
       expected:
-        "No target chat — set TELEGRAM_DIGEST_CHAT_ID or TELEGRAM_ALLOWED_USER_IDS in .env",
+        "No target chat — set TELEGRAM_DIGEST_CHAT_ID or TELEGRAM_OWNER_USER_IDS in .env",
     },
   ]) {
     const notify = notifyCommand(env);

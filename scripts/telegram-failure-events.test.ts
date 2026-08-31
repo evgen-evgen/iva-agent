@@ -15,7 +15,7 @@ import test, { after } from "node:test";
 const dataDir = mkdtempSync(join(tmpdir(), "iva-telegram-failures-"));
 process.env.ASSISTANT_DATA_DIR = dataDir;
 process.env.AGENT_LANGUAGE = "en";
-process.env.TELEGRAM_ALLOWED_USER_IDS = "9";
+process.env.TELEGRAM_ALLOWED_USER_IDS = "9,731,732,733,734,739";
 process.env.TELEGRAM_BOT_TOKEN = "failure-test-token";
 process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN = "failure-test-secret";
 process.env.IVA_PORT = "8723";
@@ -119,6 +119,8 @@ const [
 ]);
 
 const adapter = (channel as unknown as { adapter: FailureAdapter }).adapter;
+const GENERIC_FAILURE =
+  "I couldn't complete the request, so the current process was stopped. Please try again or start a new dialog with /new.";
 
 // Журнал хода (ADR-0010): «Стоп» пишет свой исход из ЕДИНОЙ политики остановки, поэтому
 // одинаково виден и в webhook-режиме, и через мост.
@@ -240,7 +242,7 @@ test("turn.failed posts a humanized error with error id even when finishStatus C
   assert.equal(sends.length, 1);
   assert.equal(
     sends[0].body!.text,
-    "Provider limit exhausted - resets in 3hr 59min; wait or switch models: /model\n\nError id: err-limit-701",
+    GENERIC_FAILURE,
   );
   assert.equal(getChatStatus(key)!.sessionId, "newer-session");
 
@@ -286,7 +288,7 @@ test("session.failed clears its run-status and deduplicates repeated delivery", 
   assert.equal(callsSince(before, "sendMessage").length, 1);
   assert.equal(
     callsSince(before, "sendMessage")[0].body!.text,
-    "Provider balance/plan exhausted - top up or switch models: /model\n\nError id: err-billing-702",
+    GENERIC_FAILURE,
   );
 
   await emitSessionFailed(data, { chatId, sessionId });
@@ -405,7 +407,7 @@ function mutedConsole() {
   };
 }
 
-test("turn.failed redacts a provider key before it reaches Bot API", async () => {
+test("turn.failed never exposes a provider key or error id to the user", async () => {
   const chatId = "706";
   const restore = mutedConsole();
   const before = apiCalls.length;
@@ -428,12 +430,11 @@ test("turn.failed redacts a provider key before it reaches Bot API", async () =>
   assert.equal(sends.length, 1);
   const text = String(sends[0].body!.text);
   assert.equal(text.includes("zzzz"), false);
-  assert.equal(text.includes("[REDACTED]"), true);
-  assert.equal(text.endsWith("Error id: err-key-706"), true);
+  assert.equal(text, GENERIC_FAILURE);
 });
 
 // errorId никто не чистит по дороге: если шов канала снять, ключ уедет в чат целым.
-test("turn.failed redacts a secret carried by errorId itself", async () => {
+test("turn.failed never exposes a secret carried by errorId", async () => {
   const chatId = "707";
   const restore = mutedConsole();
   const before = apiCalls.length;
@@ -456,7 +457,63 @@ test("turn.failed redacts a secret carried by errorId itself", async () => {
   assert.equal(sends.length, 1);
   const text = String(sends[0].body!.text);
   assert.equal(text.includes("zzzz"), false);
-  assert.equal(text.endsWith("Error id: [REDACTED]"), true);
+  assert.equal(text, GENERIC_FAILURE);
+});
+
+test("configured diagnostics channel receives details while the user gets generic copy", async () => {
+  const chatId = "710";
+  const diagnosticChatId = "-100900";
+  const before = apiCalls.length;
+  process.env.TELEGRAM_DIAGNOSTIC_CHAT_ID = diagnosticChatId;
+  try {
+    await emitTurnFailed(
+      {
+        code: "MODEL_CALL_FAILED",
+        details: { errorId: "err-diagnostic-710" },
+        message: "Upstream diagnostic detail",
+        sequence: 0,
+        turnId: "turn-diagnostic-710",
+      },
+      { chatId, sessionId: "failed-session-diagnostic" },
+    );
+  } finally {
+    delete process.env.TELEGRAM_DIAGNOSTIC_CHAT_ID;
+  }
+
+  const sends = callsSince(before, "sendMessage");
+  assert.equal(sends.length, 2);
+  const user = sends.find((call) => String(call.body?.chat_id) === chatId);
+  const diagnostic = sends.find(
+    (call) => String(call.body?.chat_id) === diagnosticChatId,
+  );
+  assert.equal(user?.body?.text, GENERIC_FAILURE);
+  assert.match(String(diagnostic?.body?.text), /Upstream diagnostic detail/u);
+  assert.match(String(diagnostic?.body?.text), /err-diagnostic-710/u);
+  assert.match(String(diagnostic?.body?.text), /failed-session-diagnostic/u);
+});
+
+test("a diagnostic target equal to the user chat never receives technical copy", async () => {
+  const chatId = "711";
+  const before = apiCalls.length;
+  const restore = mutedConsole();
+  process.env.TELEGRAM_DIAGNOSTIC_CHAT_ID = chatId;
+  try {
+    await emitTurnFailed(
+      {
+        code: "MODEL_CALL_FAILED",
+        message: "must stay private",
+        sequence: 0,
+        turnId: "turn-same-target",
+      },
+      { chatId, sessionId: "failed-session-same-target" },
+    );
+  } finally {
+    delete process.env.TELEGRAM_DIAGNOSTIC_CHAT_ID;
+    restore();
+  }
+  const sends = callsSince(before, "sendMessage");
+  assert.equal(sends.length, 1);
+  assert.equal(sends[0].body?.text, GENERIC_FAILURE);
 });
 
 // Худший вход разом: пусто в message, многострочный стек и оба секрета в одной ошибке.
@@ -470,7 +527,7 @@ test("session.failed survives an empty error and redacts a multi-line one", asyn
     );
     const empty = callsSince(emptyBefore, "sendMessage");
     assert.equal(empty.length, 1);
-    assert.equal(empty[0].body!.text, "Turn failed: Unknown provider error");
+    assert.equal(empty[0].body!.text, GENERIC_FAILURE);
 
     const before = apiCalls.length;
     await emitSessionFailed(
@@ -488,7 +545,7 @@ test("session.failed survives an empty error and redacts a multi-line one", asyn
     assert.equal(text.includes("zzzz"), false);
     assert.equal(text.includes("AAAA"), false);
     assert.equal(text.includes("at stack"), false);
-    assert.equal(text.includes("[REDACTED]"), true);
+    assert.equal(text, GENERIC_FAILURE);
   } finally {
     restore();
   }
@@ -675,7 +732,7 @@ test("the Stop button reaches the channel's own cancel route when no bridge is r
   });
   const before = apiCalls.length;
 
-  await postWebhookUpdate(stopTap(chatId, 9));
+  await postWebhookUpdate(stopTap(chatId, Number(chatId)));
 
   const cancels = callsSince(before, "cancel");
   assert.equal(cancels.length, 1, "нажатие не дошло до cancel-роута");
@@ -699,7 +756,7 @@ test("Trace: исход «Стопа» ложится в журнал хода",
   });
   const before = traceEvents().length;
 
-  await postWebhookUpdate(stopTap(chatId, 9));
+  await postWebhookUpdate(stopTap(chatId, Number(chatId)));
 
   const stops = traceEvents()
     .slice(before)
@@ -711,11 +768,11 @@ test("Trace: исход «Стопа» ложится в журнал хода",
   assert.deepEqual(stops[0].data, { chatKey: key, outcome: "requested" });
 });
 
-test("an idle chat and an untrusted tap never reach the cancel route", async () => {
+test("an idle chat and a mismatched private actor never reach the cancel route", async () => {
   const idleChat = "732";
   setChatStatus(chatKeyOf(idleChat), { status: "idle" });
   const beforeIdle = apiCalls.length;
-  await postWebhookUpdate(stopTap(idleChat, 9));
+  await postWebhookUpdate(stopTap(idleChat, Number(idleChat)));
   assert.equal(callsSince(beforeIdle, "cancel").length, 0);
   assert.equal(
     callsSince(beforeIdle, "answerCallbackQuery")[0].body!.text,
@@ -732,17 +789,23 @@ test("an idle chat and an untrusted tap never reach the cancel route", async () 
   const beforeStranger = apiCalls.length;
   await postWebhookUpdate(stopTap(liveChat, 4242));
   assert.equal(callsSince(beforeStranger, "cancel").length, 0);
-  // Спиннер гасим, но чужому нажатию ничего не объясняем.
+  // Спиннер гасим и направляем корректного актора в личный чат.
   const strangerAcks = callsSince(beforeStranger, "answerCallbackQuery");
   assert.equal(strangerAcks.length, 1);
-  assert.equal(strangerAcks[0].body!.text, undefined);
+  assert.equal(
+    strangerAcks[0].body!.text,
+    "Open a private chat with me to use this control.",
+  );
 
   // HITL-колбэк самого eve ("eve:" — TELEGRAM_HITL_CALLBACK_PREFIX) разбирается ДО
   // нашего хука: он не наш, до cancel не доходит, и отвечает на него eve.
   const beforeHitl = apiCalls.length;
   await postWebhookUpdate({
-    ...stopTap(liveChat, 9),
-    callback_query: { ...stopTap(liveChat, 9).callback_query, data: "eve:1" },
+    ...stopTap(liveChat, Number(liveChat)),
+    callback_query: {
+      ...stopTap(liveChat, Number(liveChat)).callback_query,
+      data: "eve:1",
+    },
   });
   assert.equal(callsSince(beforeHitl, "cancel").length, 0);
   assert.equal(callsSince(beforeHitl, "answerCallbackQuery").length, 1);
@@ -752,9 +815,9 @@ test("an idle chat and an untrusted tap never reach the cancel route", async () 
   // action.», поэтому спиннер обязан гасить канал — иначе он крутится вечно.
   const beforeForeign = apiCalls.length;
   await postWebhookUpdate({
-    ...stopTap(liveChat, 9),
+    ...stopTap(liveChat, Number(liveChat)),
     callback_query: {
-      ...stopTap(liveChat, 9).callback_query,
+      ...stopTap(liveChat, Number(liveChat)).callback_query,
       data: "iva_menu:root",
     },
   });
@@ -822,7 +885,7 @@ test("a crashed turn's stale status is not stoppable in webhook mode either", as
   assert.equal(getChatStatus(key)!.status, "running"); // запись всё ещё «идёт»
 
   const before = apiCalls.length;
-  await postWebhookUpdate(stopTap(chatId, 9));
+  await postWebhookUpdate(stopTap(chatId, Number(chatId)));
 
   assert.equal(callsSince(before, "cancel").length, 0);
   assert.equal(

@@ -18,10 +18,11 @@ type RootState = Record<string, unknown>;
 
 export default {
   parent: null,
-  render(_state: RootState, ctx: RootContext) {
+  render(state: RootState, ctx: RootContext) {
     const b = ctx.btn;
     const T = ctx.tr;
-    const rows = [
+    const owner = state.owner !== false;
+    const ownerRows = [
       [
         b(T("🧠 Model", "🧠 Модель"), "iva_menu:mdl"),
         b(T("🤔 Thinking", "🤔 Размышления"), "iva_menu:thk"),
@@ -47,6 +48,15 @@ export default {
         b(T("📊 Status", "📊 Статус"), "iva_menu:st:o"),
       ],
       [b(T("🛠 Maintenance", "🛠 Обслуживание"), "iva_menu:svc:o")],
+    ];
+    const userRows = [
+      [
+        b(T("🎭 Character", "🎭 Характер"), "iva_menu:chr:o"),
+        b(T("💾 Memory", "💾 Память"), "iva_menu:core:o"),
+      ],
+    ];
+    const rows = [
+      ...(owner ? ownerRows : userRows),
       [b(T("✖ Close", "✖ Закрыть"), "iva_menu:r:x")],
     ];
     return {

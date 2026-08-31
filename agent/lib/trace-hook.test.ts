@@ -35,7 +35,18 @@ type Handler = (event: unknown, ctx: unknown) => unknown;
 const handle = hook.events?.["*"] as unknown as Handler;
 
 const ctx = {
-  session: { id: "wrun_7", turn: { id: "turn_3", sequence: 3 }, auth: {} },
+  session: {
+    id: "wrun_7",
+    turn: { id: "turn_3", sequence: 3 },
+    auth: {
+      current: {
+        attributes: { tenant_id: `t_${"a".repeat(32)}` },
+        authenticator: "telegram-bot",
+        principalId: "telegram:42",
+        principalType: "user",
+      },
+    },
+  },
   channel: { kind: "telegram" },
 };
 
@@ -131,6 +142,7 @@ void test("шаг модели, вызов тула и ответ ложатся
     assert.equal(event.turn, "turn_3");
     assert.equal(event.session, "wrun_7");
     assert.equal(event.source, "telegram");
+    assert.equal(event.tenantId, `t_${"a".repeat(32)}`);
   }
 
   const [requested] = only("actions.requested");

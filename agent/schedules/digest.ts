@@ -8,7 +8,6 @@
 // same rule through their own key. No lockPath: the digest doesn't touch vault/CORE.md or
 // MOC.md, so it doesn't need to serialize with the memory rollups.
 import { defineSchedule } from "eve/schedules";
-import { readSettings } from "../lib/settings.js";
 import { resolvePaths } from "../lib/schedule-paths.js";
 import { SCHEDULE_CRON } from "../lib/schedule-table.js";
 import { runScheduledJob } from "../lib/schedule-runner.js";
@@ -16,16 +15,11 @@ import { runScheduledJob } from "../lib/schedule-runner.js";
 export default defineSchedule({
   cron: SCHEDULE_CRON.digest,
   run({ waitUntil }) {
-    const settings = readSettings() as {
-      digestSchedule?: { enabled?: boolean };
-    };
-    if (settings.digestSchedule?.enabled !== true) return;
-
     const { root, statusPath } = resolvePaths();
     waitUntil(
       runScheduledJob({
         name: "digest",
-        argv: ["scripts/daily-digest.ts"],
+        argv: ["scripts/memory/tenants.ts", "digest"],
         root,
         nodeBin: process.execPath,
         statusPath,

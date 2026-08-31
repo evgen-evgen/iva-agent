@@ -22,6 +22,8 @@ import { imageRoots } from "./cli/post.ts";
 import { systemdExecArgument } from "./cli/systemd.ts";
 import { layoutFor } from "./lib/version-store.ts";
 import { commandRunner } from "./lib/version-update.ts";
+import { TenantRegistry } from "../agent/lib/tenant-registry.ts";
+import { reconcileTelegramTenants } from "../agent/lib/telegram-tenant-provisioning.ts";
 
 const ROOT = process.cwd();
 const AUTHORED = pathToFileURL(join(ROOT, "agent/lib/data-dir.ts")).href;
@@ -187,6 +189,12 @@ test("C4: the userbot production path receives and consumes the canonical direct
   mkdirSync(canonical, { recursive: true });
   writeFileSync(join(canonical, "telegram-userbot.token"), token);
   writeFileSync(join(root, ".env"), `ASSISTANT_DATA_DIR=${configured}\n`);
+  const registry = new TenantRegistry(join(canonical, "tenants.sqlite"));
+  reconcileTelegramTenants(registry, {
+    TELEGRAM_ALLOWED_USER_IDS: "1",
+    TELEGRAM_OWNER_USER_IDS: "1",
+  });
+  registry.close();
 
   assert.equal(
     fromProcess(
@@ -199,7 +207,10 @@ test("C4: the userbot production path receives and consumes the canonical direct
   assert.equal(
     fromProcess(
       CONNECTION,
-      "(await m.default.auth.getToken()).token",
+      `(await m.default.auth({ session: { auth: { current: {
+        attributes: {}, authenticator: "telegram-bot", issuer: "telegram",
+        principalId: "telegram:1", principalType: "user"
+      } } } }).getToken()).token`,
       configured,
       root,
     ),

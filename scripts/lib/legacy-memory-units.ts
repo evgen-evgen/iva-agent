@@ -30,4 +30,4 @@ export const LEGACY_BRAIN_UNITS: readonly string[] = [
 // old pair as the safety net must repoint it first (see repointLegacyBrainUnits): a retained
 // unit that dies with "Cannot find module" is not a safety net, it is a lost night.
 export const LEGACY_BRAIN_ENTRYPOINT = "scripts/memory/doctor.ts";
-export const BRAIN_ENTRYPOINT = "scripts/memory/brain.ts";
+export const BRAIN_ENTRYPOINT = "scripts/memory/tenants.ts";

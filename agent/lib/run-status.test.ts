@@ -54,6 +54,31 @@ test("legacy whole-map is read and each touched key migrates independently", () 
   assert.equal(status.getChatStatus("legacy-a:")?.sessionId, undefined);
 });
 
+test("two private users cannot overwrite or retire each other's run status", () => {
+  const keyA = status.chatKeyOf("101");
+  const keyB = status.chatKeyOf("202");
+  status.setChatStatus(keyA, {
+    status: "running",
+    sessionId: "session-a",
+    continuationToken: "token-a",
+  });
+  status.setChatStatus(keyB, {
+    status: "running",
+    sessionId: "session-b",
+    continuationToken: "token-b",
+  });
+  status.setChatStatusIf(
+    keyA,
+    { sessionId: "session-a" },
+    { status: "idle", sessionId: null },
+  );
+
+  assert.equal(status.getChatStatus(keyA)?.status, "idle");
+  assert.equal(status.getChatStatus(keyB)?.status, "running");
+  assert.equal(status.getChatStatus(keyB)?.sessionId, "session-b");
+  assert.equal(status.getChatStatus(keyB)?.continuationToken, "token-b");
+});
+
 test("distinct chats survive bounded concurrent writers", async () => {
   const workers = 8;
   const keysPerWorker = 100;

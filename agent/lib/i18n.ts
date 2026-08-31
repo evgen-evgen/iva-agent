@@ -26,6 +26,7 @@ type Command = {
   readonly en: string;
   readonly ru: string;
   readonly args?: { readonly en: string; readonly ru: string };
+  readonly ownerOnly?: boolean;
 };
 
 const cache: { lang: Language | null; mtimeMs: number; checkedAt: number } = {
@@ -89,21 +90,25 @@ export const COMMANDS: ReadonlyArray<Command> = [
     command: "restart",
     en: "restart the agent if it's stuck",
     ru: "перезапустить зависшего агента",
+    ownerOnly: true,
   },
   {
     command: "update",
     en: "check for a new version and install it",
     ru: "проверить и установить обновление",
+    ownerOnly: true,
   },
   {
     command: "model",
     en: "switch AI provider/model/thinking effort",
     ru: "сменить провайдера, модель и размышления",
+    ownerOnly: true,
   },
   {
     command: "think",
     en: "set thinking effort",
     ru: "настроить уровень размышлений",
+    ownerOnly: true,
   },
   {
     command: "usage",
@@ -113,6 +118,7 @@ export const COMMANDS: ReadonlyArray<Command> = [
       en: "[today|week|month|by-model|by-source]",
       ru: "[today|week|month|by-model|by-source]",
     },
+    ownerOnly: true,
   },
   {
     command: "task",
@@ -125,13 +131,15 @@ export const COMMANDS: ReadonlyArray<Command> = [
 ];
 
 // Текст /help на текущем языке. Генерится на каждый вызов (язык мог смениться).
-export function helpText(): string {
+export function helpText({ owner = true }: { owner?: boolean } = {}): string {
   const isRu = getLang() === "ru";
   const pick = (en: string, ru: string): string => (isRu ? ru : en);
-  const lines = COMMANDS.map((c) => {
-    const hint = c.args ? ` ${pick(c.args.en, c.args.ru)}` : "";
-    return `/${c.command}${hint} — ${pick(c.en, c.ru)}`;
-  });
+  const lines = COMMANDS.filter((command) => owner || !command.ownerOnly).map(
+    (c) => {
+      const hint = c.args ? ` ${pick(c.args.en, c.args.ru)}` : "";
+      return `/${c.command}${hint} — ${pick(c.en, c.ru)}`;
+    },
+  );
   return [pick("Iva commands:", "Команды Iva:"), ...lines].join("\n");
 }
 
@@ -157,9 +165,10 @@ export function startText(): string {
 // подсказок аргументов — Telegram показывает только имя команды и описание.
 export function botCommands(
   lang: string,
+  { owner = true }: { owner?: boolean } = {},
 ): Array<{ command: string; description: string }> {
   const isRu = lang === "ru";
-  return COMMANDS.map((c) => ({
+  return COMMANDS.filter((command) => owner || !command.ownerOnly).map((c) => ({
     command: c.command,
     description: isRu ? c.ru : c.en,
   }));

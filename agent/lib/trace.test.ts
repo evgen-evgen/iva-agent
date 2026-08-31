@@ -264,7 +264,7 @@ void test("ход связывается с апдейтом через ключ
     chatType: "private",
     messageId: "5",
     userId: "42",
-    allowlisted: true,
+    tenantAdmitted: true,
     textChars: 6,
     text: "привет",
   });

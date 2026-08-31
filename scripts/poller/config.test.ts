@@ -27,7 +27,7 @@ interface ConfigSnapshot {
   readonly offsetFile: string;
   readonly directAcceptanceTimeoutMs: number;
   readonly settleMs: number | "NaN";
-  readonly allowed: string[];
+  readonly owners: string[];
   readonly sleepSettledBefore: boolean;
   readonly sleepSettledAfter: boolean;
   readonly logArgs: unknown[];
@@ -67,7 +67,7 @@ process.stdout.write(JSON.stringify({
   offsetFile: config.OFFSET_FILE,
   directAcceptanceTimeoutMs: config.DIRECT_ACCEPTANCE_TIMEOUT_MS,
   settleMs: Number.isNaN(config.SETTLE_MS) ? "NaN" : config.SETTLE_MS,
-  allowed: [...config.ALLOWED],
+  owners: [...config.OWNERS],
   sleepSettledBefore,
   sleepSettledAfter: sleepSettled,
   logArgs,
@@ -138,7 +138,7 @@ void test("poller config snapshots default root, routes, data, and helper behavi
   assert.equal(config.offsetFile, join(ROOT, "data", "telegram-offset.json"));
   assert.equal(config.directAcceptanceTimeoutMs, 90_000);
   assert.equal(config.settleMs, 1500);
-  assert.deepEqual(config.allowed, []);
+  assert.deepEqual(config.owners, []);
   assert.equal(config.sleepSettledBefore, false);
   assert.equal(config.sleepSettledAfter, true);
   assert.equal(typeof config.logArgs[0], "string");
@@ -146,13 +146,13 @@ void test("poller config snapshots default root, routes, data, and helper behavi
   assert.deepEqual(config.logArgs.slice(1), ["poller-config-log", 7]);
 });
 
-void test("poller config keeps explicit host, token, relative data, and allowlist normalization", async () => {
+void test("poller config keeps explicit host, token, relative data, and owner normalization", async () => {
   const token = ["123456", "fixture"].join(":");
   const config = await importConfig({
     ASSISTANT_DATA_DIR: " runtime-data ",
     ASSISTANT_HOST: "https://poll.example.test:9443/",
     IVA_PORT: "9123",
-    TELEGRAM_ALLOWED_USER_IDS: " 10,20  20\n003 ",
+    TELEGRAM_OWNER_USER_IDS: " 10,20  20\n003 ",
     TELEGRAM_BOT_TOKEN: token,
     TELEGRAM_BOT_USERNAME: "fixture_bot",
     TELEGRAM_DIRECT_ACCEPTANCE_TIMEOUT_MS: "123",
@@ -186,7 +186,7 @@ void test("poller config keeps explicit host, token, relative data, and allowlis
   assert.equal(config.api, `https://api.telegram.org/bot${token}`);
   assert.equal(config.directAcceptanceTimeoutMs, 123);
   assert.equal(config.settleMs, 17);
-  assert.deepEqual(config.allowed, ["10", "20", "003"]);
+  assert.deepEqual(config.owners, ["10", "20", "003"]);
 });
 
 void test("poller config preserves absolute data directories and removes exactly one host slash", async () => {

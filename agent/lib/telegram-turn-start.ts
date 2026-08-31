@@ -30,6 +30,7 @@ export interface PublishTelegramTurnStartedOptions {
   continuationToken: string;
   sessionId: string;
   turnId: string;
+  vaultRoot?: string;
   now?: () => number;
   getStatusImpl: GetStatus;
   setStatusIfImpl: SetStatusIf;
@@ -200,6 +201,7 @@ export async function publishTelegramTurnStarted({
   continuationToken: rawContinuationToken,
   sessionId,
   turnId,
+  vaultRoot,
   now = Date.now,
   getStatusImpl,
   setStatusIfImpl,
@@ -212,12 +214,9 @@ export async function publishTelegramTurnStarted({
   // Inbound pipeline, Gate) сшиваются с событиями eve — раньше turnId не существует.
   // Рядом — состав памяти, которая уедет в системный промпт этого хода.
   traceTurnBound(chatKey, sessionId, turnId);
-  traceContextParts(
-    turnId,
-    sessionId,
-    process.env.ASSISTANT_VAULT_DIR || "vault",
-    localStamp().date,
-  );
+  if (vaultRoot !== undefined) {
+    traceContextParts(turnId, sessionId, vaultRoot, localStamp().date);
+  }
   // Обработчики событий eve отдают токен с именем канала впереди. В статусе он должен
   // лежать только channel-local: reset-роут клеит имя канала сам (#110).
   const continuationToken = toChannelLocalToken(rawContinuationToken);

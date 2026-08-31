@@ -1,6 +1,6 @@
 # Memory
 
-Memory is the part that compounds. Most agents forget you the moment the context window fills — 131k tokens goes fast. Iva files everything into a plain-markdown vault, reorganizes it while you sleep, and pulls back only what each question needs. You talk, it files.
+Memory is the part that compounds. Most agents forget you the moment the context window fills — 131k tokens goes fast. Iva gives every admitted private Telegram user an isolated plain-markdown vault, reorganizes each vault while you sleep, and pulls back only what that user needs. See [tenant storage and migration](tenant-storage.md).
 
 ![How Iva remembers: a leaf is a day, branches are weeks and months, tree rings are years around CORE.md](../assets/iva-memory-tree.webp)
 

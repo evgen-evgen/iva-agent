@@ -2,6 +2,11 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
+import {
+  assertSafeTenantGlob,
+  resolveTenantMemoryPath,
+} from "../lib/tenant-memory-path.ts";
+import { tenantContextFromSession } from "../lib/tenant-session.ts";
 
 // Host-native grep. Переопределяет встроенный grep eve: regex-поиск по содержимому
 // реальных файлов на ФС VPS (node:fs + RegExp). Самодостаточно (eve/tools, zod,
@@ -48,6 +53,7 @@ async function walk(root: string, dir: string, out: string[]): Promise<void> {
     return;
   }
   for (const entry of entries) {
+    if (entry.name.startsWith(".")) continue;
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
       if (IGNORE_DIRS.has(entry.name)) continue;
@@ -68,8 +74,8 @@ const MAX_MATCHES = 1000;
 
 export default defineTool({
   description:
-    "Regex-поиск по содержимому файлов НАПРЯМУЮ на файловой системе хоста VPS. " +
-    "path может быть файлом или директорией (по умолчанию cwd процесса); для директории " +
+    "Regex-поиск по содержимому файлов в своём личном vault. " +
+    "path может быть vault-relative файлом или директорией; для директории " +
     "обход рекурсивный. Опционально glob фильтрует файлы по имени пути. flags — флаги " +
     "RegExp (напр. 'i' для регистронезависимого). Возвращает массив { file, line, text } " +
     "(до 1000 совпадений). Бинарные/нечитаемые файлы пропускаются.",
@@ -78,17 +84,19 @@ export default defineTool({
     path: z
       .string()
       .optional()
-      .describe(
-        "Файл или директория для поиска (абсолютный путь, по умолчанию cwd)",
-      ),
+      .describe("Файл или директория относительно личного vault"),
     glob: z
       .string()
       .optional()
       .describe("Glob-фильтр по пути файла, напр. **/*.ts"),
     flags: z.string().optional().describe("Флаги RegExp, напр. 'i' или 'm'"),
   }),
-  async execute({ pattern, path, glob, flags }) {
-    const root = path ?? process.cwd();
+  async execute({ pattern, path, glob, flags }, ctx) {
+    const tenant = tenantContextFromSession(ctx);
+    if (glob) assertSafeTenantGlob(glob);
+    const root = path
+      ? resolveTenantMemoryPath(tenant.vaultRoot, path)
+      : tenant.vaultRoot;
     const re = new RegExp(pattern, flags ?? "");
     const globRe = glob ? globToRegExp(glob) : null;
 
@@ -123,7 +131,11 @@ export default defineTool({
           // Усекаем длинные строки (минифайлы), чтобы не раздуть контекст.
           const text =
             lines[i].length > 300 ? lines[i].slice(0, 300) + "…" : lines[i];
-          matches.push({ file, line: i + 1, text });
+          matches.push({
+            file: relative(tenant.vaultRoot, file).split(sep).join("/"),
+            line: i + 1,
+            text,
+          });
           if (matches.length >= MAX_MATCHES) {
             truncated = true;
             break;

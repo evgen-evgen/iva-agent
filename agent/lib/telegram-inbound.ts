@@ -1,13 +1,12 @@
 // Inbound-пайплайн Telegram: из сырого апдейта получается ход модели или ничего.
 // Один вход (runTelegramInbound) и один набор эффектов — всё остальное внутри:
-// allowlist, решение о диспатче, запись в Vault, медиа со зрением и транскрипцией,
+// tenant admission, решение о диспатче, запись в Vault, медиа со зрением и транскрипцией,
 // inbound-Gate, контекст прерванного хода и цитаты.
 //
 // Модуль намеренно не знает про eve: канал (agent/channels/telegram.ts) остаётся
 // адаптером и приносит сюда только эффекты, поэтому пайплайн проверяется голым node.
 import { tr } from "./i18n.ts";
 import { hasInboundAttackSignal, sanitizeInbound } from "./security-gate.ts";
-import { allowedTelegramUsers } from "./telegram-allowlist.ts";
 import {
   inboundTruncationNotice,
   injectionWarning,
@@ -30,6 +29,7 @@ import {
   type RichMessageReading,
   type TelegramMessageTextReading,
 } from "./telegram-rich-message.ts";
+import type { TenantContext } from "./tenant-context.ts";
 
 // Один rich_message обрабатывает не больше обычного Telegram-альбома.
 // Это ограничивает последовательные скачивания и вызовы зрения одним ходом.
@@ -71,8 +71,9 @@ export type TelegramInboundTurn = {
   context?: string[];
 };
 
-export type TelegramInboundEffects = TelegramMediaEffects & {
+export type TelegramInboundEffects = Omit<TelegramMediaEffects, "tenant"> & {
   readonly botUsername?: string;
+  readonly resolveTenant: (message: TelegramInboundMessage) => TenantContext;
   readonly startTyping: () => Promise<unknown>;
   // Апдейт наш и дальше идёт медленная работа (медиа, провайдеры, гейт) —
   // канал успевает показать статус до неё.
@@ -282,7 +283,10 @@ function messageViewForRaw(
 }
 
 // Воспроизводит дефолтный auth-контекст eve для Telegram-актора.
-function buildAuth(msg: TelegramInboundMessage): TelegramInboundAuth | null {
+function buildAuth(
+  msg: TelegramInboundMessage,
+  tenant: TenantContext,
+): TelegramInboundAuth | null {
   const u = msg.from;
   if (!u) return null;
   const isGroup = msg.chat.type === "group" || msg.chat.type === "supergroup";
@@ -291,6 +295,8 @@ function buildAuth(msg: TelegramInboundMessage): TelegramInboundAuth | null {
     chat_type: msg.chat.type,
     message_id: msg.messageId,
     user_id: u.id,
+    tenant_id: tenant.tenantId,
+    tenant_role: tenant.role,
   };
   if (msg.chat.title !== undefined) attributes.chat_title = msg.chat.title;
   if (msg.messageThreadId !== undefined)
@@ -298,7 +304,7 @@ function buildAuth(msg: TelegramInboundMessage): TelegramInboundAuth | null {
   if (u.username !== undefined) attributes.username = u.username;
   return {
     attributes,
-    authenticator: "telegram-webhook",
+    authenticator: "telegram-bot",
     issuer: isGroup ? `telegram:${msg.chat.id}` : "telegram",
     principalId: isGroup
       ? `telegram:${msg.chat.id}:${u.id}`
@@ -308,7 +314,10 @@ function buildAuth(msg: TelegramInboundMessage): TelegramInboundAuth | null {
 }
 
 // Локация/контакт/опрос: файла нет, но событие должно остаться в дневнике.
-function appendNonFileParts(parts: readonly TelegramRawMessage[]): void {
+function appendNonFileParts(
+  tenant: TenantContext,
+  parts: readonly TelegramRawMessage[],
+): void {
   for (const partRaw of parts) {
     const location = telegramLocation(partRaw);
     const contact = asRecord(partRaw.contact);
@@ -328,32 +337,8 @@ function appendNonFileParts(parts: readonly TelegramRawMessage[]): void {
           : null;
     if (nonFile) {
       const [head, body] = nonFile.split("\t");
-      appendDaily(head, body);
+      appendDaily(tenant.vaultRoot, head, body);
     }
-  }
-}
-
-async function noAccessNote(
-  message: TelegramInboundMessage,
-  effects: TelegramInboundEffects,
-  allowlistEmpty: boolean,
-): Promise<void> {
-  // Вежливо отвечаем только в личке, чтобы человек мог передать свой ID владельцу.
-  if (message.chat.type !== "private") return;
-  const userId = message.from?.id;
-  const note = allowlistEmpty
-    ? tr(
-        "The bot isn't configured yet: the owner needs to add a Telegram ID to TELEGRAM_ALLOWED_USER_IDS.",
-        "Бот ещё не настроен: владельцу нужно добавить Telegram ID в TELEGRAM_ALLOWED_USER_IDS.",
-      )
-    : tr(
-        `No access. Your Telegram ID: ${userId ?? "unknown"} — pass it to the owner so they can add you.`,
-        `Нет доступа. Ваш Telegram ID: ${userId ?? "неизвестен"} — передайте владельцу, чтобы он добавил вас.`,
-      );
-  try {
-    await effects.sendMessage(note);
-  } catch {
-    /* молча игнорируем сбой ответа */
   }
 }
 
@@ -442,13 +427,14 @@ type CarrierTextEntries = {
 // Метка пересылки идёт первой строкой: так она одинакова в дневнике и в контексте
 // и переживает усечение гейтом.
 function carrierTextEntries(
+  tenant: TenantContext,
   text: string,
   label: string | null,
 ): CarrierTextEntries {
   const userText = text.trim();
   if (!userText) return { entries: [], flagged: false };
   const labelled = label === null ? userText : `${label}\n${userText}`;
-  const dailyPath = appendDaily("[text]", labelled);
+  const dailyPath = appendDaily(tenant.vaultRoot, "[text]", labelled);
   const sanitized = sanitizeInbound(labelled);
   const flagged = logInboundFindings(sanitized);
   return {
@@ -458,7 +444,7 @@ function carrierTextEntries(
 }
 
 async function richMediaEntries(
-  effects: TelegramInboundEffects,
+  effects: TelegramMediaEffects,
   reading: RichMessageReading,
 ): Promise<string[]> {
   const entries: string[] = [];
@@ -497,12 +483,16 @@ export async function runTelegramInbound(
   // пишут швы снаружи — acceptance-обёртка, Gate, Outbox, старт хода.
   traceInboundReceived(message);
 
-  // 1. Allowlist — главный барьер доступа.
-  const allowed = allowedTelegramUsers();
-  if (allowed.size === 0 || !userId || !allowed.has(userId)) {
-    await noAccessNote(message, effects, allowed.size === 0);
-    return null; // дропаем апдейт
+  // 1. Only authenticated private users become tenants. The resolver persists a
+  // first-time sender before anything is written to their isolated vault.
+  if (!userId || message.from?.isBot || message.chat.type !== "private") return null;
+  let tenant: TenantContext;
+  try {
+    tenant = effects.resolveTenant(message);
+  } catch {
+    return null;
   }
+  const mediaEffects: TelegramMediaEffects = { ...effects, tenant };
 
   const raw: TelegramRawMessage = message.raw;
   const partsRaw = messageParts(raw);
@@ -518,9 +508,9 @@ export async function runTelegramInbound(
     readTelegramMessageText(raw, message.text, message.caption);
   const singleLocationContext =
     partsRaw.length === 1 ? telegramLocationContext(raw) : null;
-  appendNonFileParts(partsRaw);
+  appendNonFileParts(tenant, partsRaw);
 
-  // The allowlist and dispatch decision are complete. Publish the one working
+  // Tenant admission and the dispatch decision are complete. Publish the one working
   // status before reply sanitization, media I/O, security scans or providers.
   const shouldDispatchAny =
     partsRaw.length === 1
@@ -580,7 +570,7 @@ export async function runTelegramInbound(
       (s: unknown): s is string => typeof s === "string" && s.trim().length > 0,
     );
     const dailyPath = rawItems.length
-      ? appendDaily("[queued]", rawItems.join("\n"))
+      ? appendDaily(tenant.vaultRoot, "[queued]", rawItems.join("\n"))
       : undefined;
     const items = rawItems.map((text) => {
       const sanitized = sanitizeInbound(text);
@@ -646,10 +636,10 @@ export async function runTelegramInbound(
     const cmd = cmdText.split(/\s+/)[0].replace(/@\w+$/, "").toLowerCase();
     const rest = cmdText.slice(cmdText.split(/\s+/)[0].length).trim();
     if (cmd === "/task") {
-      appendDaily("[text]", cmdText);
+      appendDaily(tenant.vaultRoot, "[text]", cmdText);
       await effects.startTyping();
       return withPre({
-        auth: buildAuth(message),
+        auth: buildAuth(message, tenant),
         context: [
           rest
             ? tr(
@@ -661,10 +651,10 @@ export async function runTelegramInbound(
       });
     }
     if (cmd === "/tasks") {
-      appendDaily("[text]", cmdText);
+      appendDaily(tenant.vaultRoot, "[text]", cmdText);
       await effects.startTyping();
       return withPre({
-        auth: buildAuth(message),
+        auth: buildAuth(message, tenant),
         context: [
           tr(
             "Show my task list (call the tasks tool).",
@@ -674,10 +664,10 @@ export async function runTelegramInbound(
       });
     }
     if (cmd === "/digest") {
-      appendDaily("[text]", cmdText);
+      appendDaily(tenant.vaultRoot, "[text]", cmdText);
       await effects.startTyping();
       return withPre({
-        auth: buildAuth(message),
+        auth: buildAuth(message, tenant),
         context: [
           tr(
             "Load the morning-digest skill and assemble the morning digest.",
@@ -693,32 +683,39 @@ export async function runTelegramInbound(
   // uploadPolicy "disabled" → message.attachments пуст; берём ВСЁ из raw сами.
   if (singleReading?.rich) {
     await effects.startTyping();
-    const carrier = carrierTextEntries(singleReading.text, forwardLabel(raw));
+    const carrier = carrierTextEntries(
+      tenant,
+      singleReading.text,
+      forwardLabel(raw),
+    );
     return withPre({
-      auth: buildAuth(message),
+      auth: buildAuth(message, tenant),
       context: [
         ...carrier.entries,
-        ...(await richMediaEntries(effects, singleReading.rich)),
+        ...(await richMediaEntries(mediaEffects, singleReading.rich)),
       ],
     });
   }
 
   if (partsRaw.length === 1 && media) {
     await effects.startTyping();
-    const result = await processMediaPart(effects, raw, media, {
+    const result = await processMediaPart(mediaEffects, raw, media, {
       dropSilent: !operationalPreContext.length,
     });
     if (result.kind !== "context") {
       await effects.onAbandoned();
       return null;
     }
-    return withPre({ auth: buildAuth(message), context: result.context });
+    return withPre({
+      auth: buildAuth(message, tenant),
+      context: result.context,
+    });
   }
 
   if (singleLocationContext !== null) {
     await effects.startTyping();
     return withPre({
-      auth: buildAuth(message),
+      auth: buildAuth(message, tenant),
       context: [singleLocationContext],
     });
   }
@@ -726,7 +723,11 @@ export async function runTelegramInbound(
   // 3. Текстовая реплика юзера → daily (verbatim) + inbound security-гейт.
   if (partsRaw.length === 1) {
     const label = forwardLabel(raw);
-    const carrier = carrierTextEntries(singleReading?.text ?? "", label);
+    const carrier = carrierTextEntries(
+      tenant,
+      singleReading?.text ?? "",
+      label,
+    );
 
     await effects.startTyping();
 
@@ -735,8 +736,11 @@ export async function runTelegramInbound(
     // Пересылку переопределяем всегда: eve несёт модели голый текст, и без контекстной
     // записи метка до модели не доедет.
     if ((carrier.flagged || label !== null) && carrier.entries.length)
-      return withPre({ auth: buildAuth(message), context: carrier.entries });
-    return withPre({ auth: buildAuth(message) });
+      return withPre({
+        auth: buildAuth(message, tenant),
+        context: carrier.entries,
+      });
+    return withPre({ auth: buildAuth(message, tenant) });
   }
 
   await effects.startTyping();
@@ -745,13 +749,13 @@ export async function runTelegramInbound(
     const reading = readings[partIndex];
     const label = forwardLabel(partRaw);
     if (reading.rich) {
-      context.push(...carrierTextEntries(reading.text, label).entries);
-      context.push(...(await richMediaEntries(effects, reading.rich)));
+      context.push(...carrierTextEntries(tenant, reading.text, label).entries);
+      context.push(...(await richMediaEntries(mediaEffects, reading.rich)));
       continue;
     }
     const partMedia = mediaFromRaw(partRaw);
     if (partMedia) {
-      const result = await processMediaPart(effects, partRaw, partMedia);
+      const result = await processMediaPart(mediaEffects, partRaw, partMedia);
       context.push(...result.context);
       continue;
     }
@@ -764,7 +768,7 @@ export async function runTelegramInbound(
 
     const userText = reading.text.trim();
     if (!userText) continue;
-    const carrier = carrierTextEntries(userText, label);
+    const carrier = carrierTextEntries(tenant, userText, label);
     const carrierText = carrierReading.text.trim();
     // Пересланная часть не «чистый носитель»: eve донесёт её текст без метки,
     // поэтому помеченную запись отдаём контекстом даже на нулевой части.
@@ -776,7 +780,7 @@ export async function runTelegramInbound(
     if (!isCleanCarrierText) context.push(...carrier.entries);
   }
   return withPre({
-    auth: buildAuth(message),
+    auth: buildAuth(message, tenant),
     ...(context.length ? { context } : {}),
   });
 }

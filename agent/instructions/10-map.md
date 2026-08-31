@@ -1,6 +1,6 @@
 ## Memory map (MAP) — you are the navigator, load nothing wholesale
 
-Memory lives in the vault (`ASSISTANT_VAULT_DIR`, default `vault/`). Only this
+Memory lives in the authenticated tenant's vault. Only this
 index is in context; search content with `memory_search` (ranked search over
 cards and summaries), then pull the top hits one file at a time with
 `read_file`. Never read the whole vault.

@@ -12,20 +12,22 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after } from "node:test";
+import { resolveTelegramTenantForUserId } from "../agent/lib/telegram-tenant-resolver.ts";
 
-const vault = mkdtempSync(join(tmpdir(), "iva-reply-context-"));
+const legacyVault = mkdtempSync(join(tmpdir(), "iva-reply-context-legacy-"));
 // Свой каталог данных: пайплайн пишет run-status и журнал хода, и ни то, ни другое не
 // должно оседать в каталоге репозитория при прогоне тестов.
 const dataDir = mkdtempSync(join(tmpdir(), "iva-reply-context-data-"));
 process.env.ASSISTANT_DATA_DIR = dataDir;
 const telegramBotToken = `bot-${randomUUID()}`;
 const telegramWebhookSecret = `webhook-${randomUUID()}`;
-process.env.ASSISTANT_VAULT_DIR = vault;
+process.env.ASSISTANT_VAULT_DIR = legacyVault;
 process.env.TELEGRAM_ALLOWED_USER_IDS = "9";
 process.env.TELEGRAM_BOT_TOKEN = telegramBotToken;
 process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN = telegramWebhookSecret;
 process.env.TELEGRAM_BOT_USERNAME = "my_bot";
 process.env.AGENT_LANGUAGE = "en";
+const vault = resolveTelegramTenantForUserId("9").vaultRoot;
 
 type ApiCall = { url: string; init: RequestInit };
 type Message = Record<string, unknown> & {
@@ -112,14 +114,16 @@ const webhook = channel.routes.find(
 ) as unknown as WebhookRoute | undefined;
 
 after(() => {
-  rmSync(vault, { recursive: true, force: true });
+  rmSync(legacyVault, { recursive: true, force: true });
   rmSync(dataDir, { recursive: true, force: true });
 });
 
 function message(overrides: Record<string, unknown> = {}): Message {
   return {
     message_id: 100,
-    chat: { id: 7, type: "private" },
+    // Telegram private chats use the sender's user ID as the chat ID. Tenant
+    // admission intentionally rejects mismatched identities.
+    chat: { id: 9, type: "private" },
     from: { id: 9, is_bot: false, username: "owner" },
     text: "new message",
     ...overrides,
@@ -499,7 +503,7 @@ test("attack signals in a quoted filename are sanitized and aggregated without d
   );
 });
 
-test("group and topic routing keep the same quoted context contract", async () => {
+test("group and topic messages are rejected before quote or media processing", async () => {
   for (const current of [
     message({
       chat: { id: -7, type: "group", title: "group" },
@@ -527,8 +531,7 @@ test("group and topic routing keep the same quoted context contract", async () =
   ]) {
     const before = apiCalls.length;
     const sends = await dispatch(current);
-    assert.equal(sends.length, 1);
-    assert.equal(replyItem(sends[0])!.untrusted, true);
+    assert.equal(sends.length, 0);
     assert.equal(
       apiCalls.slice(before).some(({ url }) => url.endsWith("/getFile")),
       false,
@@ -780,16 +783,14 @@ test("a >50k voice transcript is marked while its full daily record and original
   assert.match(notice!, /1 Unicode character/i);
   assert.ok(notice!.includes(daily.path));
   assert.ok(daily.text.includes(deepgramTranscript));
-  const attachmentDay = join(
-    vault,
-    "attachments",
-    readdirSync(join(vault, "attachments"))[0],
+  const attachments = readdirSync(join(vault, "attachments")).map((name) =>
+    readFileSync(join(vault, "attachments", name)),
   );
-  const saved = join(
-    attachmentDay,
-    readdirSync(attachmentDay).find((name) => name.startsWith("voice-"))!,
+  assert.ok(
+    attachments.some((bytes) =>
+      Buffer.from(bytes).equals(Buffer.from([1, 2, 3])),
+    ),
   );
-  assert.deepEqual([...readFileSync(saved)], [1, 2, 3]);
 });
 
 test("an oversized caption is marked and remains complete in the saved daily entry", async () => {

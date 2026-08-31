@@ -6,17 +6,17 @@ void test("notification chat uses the configured digest chat", () => {
   assert.equal(
     notificationChat({
       TELEGRAM_DIGEST_CHAT_ID: "99",
-      TELEGRAM_ALLOWED_USER_IDS: "1,2",
+      TELEGRAM_OWNER_USER_IDS: "1,2",
     }),
     "99",
   );
 });
 
-void test("notification chat falls back to the first trusted user", () => {
+void test("notification chat falls back to the owner", () => {
   assert.equal(
     notificationChat({
       TELEGRAM_DIGEST_CHAT_ID: "",
-      TELEGRAM_ALLOWED_USER_IDS: " 1, 2",
+      TELEGRAM_OWNER_USER_IDS: " 1, 2",
     }),
     "1",
   );
@@ -26,7 +26,7 @@ void test("notification chat is empty without a digest chat or trusted user", ()
   assert.equal(
     notificationChat({
       TELEGRAM_DIGEST_CHAT_ID: "",
-      TELEGRAM_ALLOWED_USER_IDS: "",
+      TELEGRAM_OWNER_USER_IDS: "",
     }),
     "",
   );

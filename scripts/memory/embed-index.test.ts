@@ -22,6 +22,8 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { tenantContextForRecord } from "../../agent/lib/tenant-context.ts";
+import { TenantRegistry } from "../../agent/lib/tenant-registry.ts";
 
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "embed-index.ts");
 
@@ -71,10 +73,26 @@ interface IndexFile {
   hashes: Record<string, string>;
 }
 
+const tenantByVault = new Map<
+  string,
+  { dataDir: string; tenantId: string; root: string }
+>();
+
 function makeVault(): string {
-  const vault = mkdtempSync(join(tmpdir(), "iva-embed-index-"));
+  const root = mkdtempSync(join(tmpdir(), "iva-embed-index-"));
+  const dataDir = join(root, "data");
+  const registry = new TenantRegistry(join(dataDir, "tenants.sqlite"));
+  const record = registry.create({
+    authenticator: "telegram-bot",
+    issuer: "telegram",
+    externalPrincipal: `telegram:${Date.now()}-${Math.random()}`,
+  });
+  registry.close();
+  const context = tenantContextForRecord(record, join(dataDir, "tenants"));
+  const vault = context.vaultRoot;
   mkdirSync(join(vault, "cards"), { recursive: true });
-  process.on("exit", () => rmSync(vault, { recursive: true, force: true }));
+  tenantByVault.set(vault, { dataDir, tenantId: context.tenantId, root });
+  process.on("exit", () => rmSync(root, { recursive: true, force: true }));
   return vault;
 }
 
@@ -90,14 +108,20 @@ async function runIndex(
   url: string,
   model?: string,
 ): Promise<string> {
-  const { stdout } = await run(process.execPath, [SCRIPT], {
-    env: {
-      ...process.env,
-      ASSISTANT_VAULT_DIR: vault,
-      MEMORY_EMBED_URL: url,
-      ...(model ? { MEMORY_EMBED_MODEL: model } : {}),
+  const target = tenantByVault.get(vault);
+  assert.ok(target);
+  const { stdout } = await run(
+    process.execPath,
+    [SCRIPT, "--tenant-id", target.tenantId],
+    {
+      env: {
+        ...process.env,
+        ASSISTANT_DATA_DIR: target.dataDir,
+        MEMORY_EMBED_URL: url,
+        ...(model ? { MEMORY_EMBED_MODEL: model } : {}),
+      },
     },
-  });
+  );
   return stdout;
 }
 

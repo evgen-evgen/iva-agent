@@ -96,10 +96,9 @@ await test("memoryRollupJob returns the exact command contract for every period"
   for (const period of periods) {
     assert.deepEqual(probe({ cwd: root, dataDir: "schedule-data", period }), {
       name: `memory-${period}`,
-      argv: ["scripts/memory/rollup.ts", period],
+      argv: ["scripts/memory/tenants.ts", period],
       root,
       nodeBin: process.execPath,
-      lockPath: join(root, ".memory.lock"),
       statusPath: join(root, "schedule-data", "rollup-status.json"),
     });
   }

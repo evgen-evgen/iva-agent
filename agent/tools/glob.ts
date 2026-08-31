@@ -2,6 +2,11 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { readdir } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
+import {
+  assertSafeTenantGlob,
+  resolveTenantMemoryPath,
+} from "../lib/tenant-memory-path.ts";
+import { tenantContextFromSession } from "../lib/tenant-session.ts";
 
 // Host-native glob. Переопределяет встроенный glob eve: ищет файлы на реальной ФС VPS.
 // fast-glob в node_modules отсутствует, поэтому реализовано через рекурсивный обход fs
@@ -52,6 +57,7 @@ async function walk(root: string, dir: string, out: string[]): Promise<void> {
     return; // нет доступа / директория исчезла — пропускаем
   }
   for (const entry of entries) {
+    if (entry.name.startsWith(".")) continue;
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
       if (IGNORE_DIRS.has(entry.name)) continue;
@@ -64,26 +70,29 @@ async function walk(root: string, dir: string, out: string[]): Promise<void> {
 
 export default defineTool({
   description:
-    "Найти файлы по glob-паттерну НАПРЯМУЮ на файловой системе хоста VPS. " +
-    "Поддерживает ** (любые поддиректории), * и ?. Поиск относительно cwd " +
-    "(по умолчанию текущая рабочая директория процесса). Возвращает массив путей " +
-    "(относительно cwd). Директории .git/node_modules/dist и т.п. пропускаются.",
+    "Найти файлы по glob-паттерну в своём личном vault. " +
+    "Поддерживает ** (любые поддиректории), * и ?. Возвращает vault-relative пути.",
   inputSchema: z.object({
     pattern: z
       .string()
       .min(1)
-      .describe("Glob-паттерн, напр. **/*.ts или vault/daily/*.md"),
+      .describe("Glob-паттерн, напр. **/*.md или daily/*.md"),
     cwd: z
       .string()
       .optional()
-      .describe("Базовая директория поиска (абсолютный путь)"),
+      .describe("Базовая директория относительно личного vault"),
   }),
-  async execute({ pattern, cwd }) {
-    const root = cwd ?? process.cwd();
+  async execute({ pattern, cwd }, ctx) {
+    const tenant = tenantContextFromSession(ctx);
+    assertSafeTenantGlob(pattern);
+    const root = cwd
+      ? resolveTenantMemoryPath(tenant.vaultRoot, cwd)
+      : tenant.vaultRoot;
     const all: string[] = [];
     await walk(root, root, all);
     const re = globToRegExp(pattern);
     const matches = all.filter((p) => re.test(p)).sort();
-    return matches;
+    const prefix = relative(tenant.vaultRoot, root).split(sep).join("/");
+    return matches.map((path) => (prefix ? `${prefix}/${path}` : path));
   },
 });

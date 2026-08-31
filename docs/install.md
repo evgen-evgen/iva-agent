@@ -1,5 +1,9 @@
 # Install
 
+For an existing single-user installation, do not copy the old vault into a new user's
+directory by hand. Complete setup with exactly one `TELEGRAM_OWNER_USER_IDS` entry, then
+follow the verified dry-run/apply procedure in [Telegram tenants and storage](tenant-storage.md#migrating-an-existing-single-user-installation).
+
 Everything between `curl` and a working bot. One command on a fresh server: the installer asks your language, walks you through five keys, and ends by messaging you from your own bot.
 
 ## Requirements

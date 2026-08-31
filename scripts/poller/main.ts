@@ -33,6 +33,8 @@ import * as routing from "./routing.ts";
 import * as updateFlow from "./update-flow.ts";
 import * as control from "./control.ts";
 import * as wizards from "./wizards.ts";
+import { isPrivateTelegramActor } from "#lib/telegram-private-chat.ts";
+import { resolveTelegramTenantForUserId } from "#lib/telegram-tenant-resolver.ts";
 
 type ErrorLike = { message?: unknown };
 type TelegramResponse = {
@@ -213,6 +215,24 @@ export async function main({
         offset = update.update_id + 1;
         await saveOffset(offset, delivered);
         continue;
+      }
+      const inbound = update.message ?? update.callback_query?.message;
+      const sender = update.message?.from ?? update.callback_query?.from;
+      if (
+        sender?.is_bot !== true &&
+        sender?.id !== undefined &&
+        isPrivateTelegramActor(inbound?.chat, sender.id)
+      ) {
+        try {
+          resolveTelegramTenantForUserId(String(sender.id));
+        } catch (error) {
+          log(
+            `tenant provisioning failed for update ${update.update_id}:`,
+            errorMessage(error),
+          );
+          ingressBlocked = true;
+          break;
+        }
       }
       // Control commands (/restart, /help, /new) — the bridge handles them itself, doesn't send to eve.
       const controlResult = await handleControl(update);

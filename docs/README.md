@@ -6,7 +6,7 @@ Iva is a self-hosted Telegram AI assistant with layered memory that turns your m
 - [install.md](install.md) — one command on a fresh VPS, from curl to the bot's first message
 - [configuration.md](configuration.md) — every `.env` variable and the setup wizard
 - [memory.md](memory.md) — how the vault compounds: transcripts, rollups, cards, search
-- [security.md](security.md) — injection screening in, secret redaction out, allowlist fails closed
+- [security.md](security.md) — injection screening in, secret redaction out, isolated tenants and owner-only controls
 - [providers.md](providers.md) — every external service, with real prices
 - [deploy.md](deploy.md) — systemd services and timers, long polling, updates, backups
 - [cli.md](cli.md) — Telegram slash commands and the `iva` CLI

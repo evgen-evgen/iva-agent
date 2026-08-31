@@ -375,6 +375,7 @@ async function fixtureEnv(provider: string): Promise<string> {
     "DEEPGRAM_API_KEY=dg",
     "TELEGRAM_BOT_TOKEN=tg",
     "TELEGRAM_ALLOWED_USER_IDS=1",
+    "TELEGRAM_OWNER_USER_IDS=1",
     "TELEGRAM_BOT_USERNAME=ivabot",
     `IVA_PORT=${port}`,
     "AGENT_LANGUAGE=en",

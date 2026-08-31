@@ -1,11 +1,11 @@
-// Один rich-пост в ДРУГОЙ allowlist-чат, отправленный из CLI. Раньше это делал
+// Один rich-пост в явно настроенный чат, отправленный из CLI. Раньше это делал
 // python-скрипт скилла rich-post: он звал Bot API напрямую и потому шёл мимо
 // outbound-гейта, а ADR-0005 требует гейт на каждом выходе к Bot API. Теперь пост
 // уходит тем же швом, что и ночной отчёт (scripts/lib/telegram-send.ts → Outbox).
 //
 // Правила, которые команда держит вместо модели:
 //   • получателя выбирает владелец, а не модель: по умолчанию TELEGRAM_DIGEST_CHAT_ID,
-//     явный --chat принимается только из allowlist;
+//     явный --chat принимается только для owner/digest;
 //   • токен берётся из .env и никогда из argv (argv виден в ps), флага --token нет;
 //   • локальная картинка уезжает на публичный tmpfiles.org только по явному
 //     --allow-upload и только если это настоящий медиафайл из разрешённых корней —
@@ -139,10 +139,10 @@ export function parsePostArguments(args: readonly string[]): PostArguments {
   };
 }
 
-/** Кому вообще можно писать: allowlist владельца плюс чат дайджеста. */
+/** Кому можно писать из CLI: владельцу или в чат дайджеста. */
 export function allowedChats(env: NodeJS.ProcessEnv): Set<string> {
   const allowed = new Set(
-    String(env.TELEGRAM_ALLOWED_USER_IDS ?? "")
+    String(env.TELEGRAM_OWNER_USER_IDS ?? "")
       .split(/[,\s]+/)
       .map((id) => id.trim())
       .filter(Boolean),
@@ -157,14 +157,14 @@ function resolveChat(chat: string | undefined, env: NodeJS.ProcessEnv): string {
   if (chat === undefined) {
     if (!digest)
       throw new Error(
-        "No target chat — set TELEGRAM_DIGEST_CHAT_ID in .env or pass an allowlisted --chat",
+        "No target chat — set TELEGRAM_DIGEST_CHAT_ID in .env or pass the owner --chat",
       );
     return digest;
   }
   const requested = chat.trim();
   if (!allowedChats(env).has(requested))
     throw new Error(
-      `Refusing to send: chat ${chat} is not in the allowlist (TELEGRAM_ALLOWED_USER_IDS + TELEGRAM_DIGEST_CHAT_ID)`,
+      `Refusing to send: chat ${chat} is not an owner/digest destination`,
     );
   return requested;
 }

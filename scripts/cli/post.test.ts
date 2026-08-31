@@ -1,6 +1,6 @@
 // Тесты `iva post` — порт интеграционных тестов прежнего python-отправщика, только без
 // subprocess: офлайновый dry-run, гейт --allow-upload, media-гейт (только настоящие
-// картинки/видео из разрешённых корней), allowlist получателей, отсутствие --token.
+// картинки/видео из разрешённых корней), owner/digest получателей, отсутствие --token.
 // Сеть не трогается вообще: отправка, загрузка и чтение .env подставляются зависимостями.
 //
 // Провал property-теста печатает seed:
@@ -74,7 +74,7 @@ function postCommand(
       Promise.resolve({
         ASSISTANT_DATA_DIR: dir,
         TELEGRAM_BOT_TOKEN: "123:FAKE",
-        TELEGRAM_ALLOWED_USER_IDS: "111 222",
+        TELEGRAM_OWNER_USER_IDS: "111 222",
         TELEGRAM_DIGEST_CHAT_ID: "999",
         ...env,
       }),
@@ -164,11 +164,11 @@ void test("не-media файл (например .env) не грузится д�
   assert.deepEqual(post.printed, []);
 });
 
-void test("чужой --chat вне allowlist — отказ без отправки", async (t) => {
+void test("чужой --chat вне owner/digest — отказ без отправки", async (t) => {
   const post = postCommand(t);
 
   await assert.rejects(post.cmdPost(["--md", "hello", "--chat", "555000"]), {
-    message: /allowlist/u,
+    message: /owner\/digest/u,
   });
 
   assert.deepEqual(post.sent, []);
@@ -274,7 +274,7 @@ void test("пост по умолчанию уходит в чат дайдже�
   assert.deepEqual(post.messages, ["Rich post sent to 999"]);
 });
 
-void test("allowlist-получатель, --silent и --thread-id доходят до отправки", async (t) => {
+void test("owner-получатель, --silent и --thread-id доходят до отправки", async (t) => {
   const post = postCommand(t, {}, { stdin: "из stdin" });
 
   await post.cmdPost([
@@ -474,7 +474,7 @@ void test("PBT: разбор ссылок на картинки видит ка�
   );
 });
 
-void test("PBT: allowlist разбирается по любым разделителям и не пускает чужого", () => {
+void test("PBT: owner IDs разбираются по разделителям и не пускают чужого", () => {
   const identifier = fc
     .array(fc.constantFrom(..."0123456789"), { minLength: 1, maxLength: 10 })
     .map((digits) => digits.join(""));
@@ -494,7 +494,7 @@ void test("PBT: allowlist разбирается по любым раздели�
           )
           .join("");
         const allowed = allowedChats({
-          TELEGRAM_ALLOWED_USER_IDS: raw,
+          TELEGRAM_OWNER_USER_IDS: raw,
           TELEGRAM_DIGEST_CHAT_ID: digest,
         });
 

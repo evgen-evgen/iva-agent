@@ -288,8 +288,9 @@ async function writeEnv(out: Env): Promise<void> {
     "TELEGRAM_BOT_TOKEN",
     "TELEGRAM_BOT_USERNAME",
     "TELEGRAM_WEBHOOK_SECRET_TOKEN",
-    "TELEGRAM_ALLOWED_USER_IDS",
+    "TELEGRAM_OWNER_USER_IDS",
     "TELEGRAM_DIGEST_CHAT_ID",
+    "TELEGRAM_DIAGNOSTIC_CHAT_ID",
     "DEEPGRAM_API_KEY",
     "DEEPGRAM_LANGUAGE",
     "SEARCH_PROVIDER",
@@ -506,6 +507,7 @@ async function pickFromList(
 async function main() {
   const existing = await loadExistingEnv();
   const out = { ...existing };
+  delete out.TELEGRAM_ALLOWED_USER_IDS;
   out.ASSISTANT_BEARER = isAssistantBearer(existing.ASSISTANT_BEARER)
     ? existing.ASSISTANT_BEARER.trim()
     : generateAssistantBearer();
@@ -549,7 +551,7 @@ async function main() {
     ...(cat0 ? providerEnvKeys(cat0) : []),
     "DEEPGRAM_API_KEY",
     "TELEGRAM_BOT_TOKEN",
-    "TELEGRAM_ALLOWED_USER_IDS",
+    "TELEGRAM_OWNER_USER_IDS",
   ];
   const loggedInCodex =
     prov0 !== "codex" || existsSync(authFilePath(dataDirAbs(existing)));
@@ -574,7 +576,7 @@ async function main() {
       `  • ${t("Bot", "Бот")}:       @${existing.TELEGRAM_BOT_USERNAME || "?"}`,
     );
     console.log(
-      `  • ${t("Access", "Доступ")}:    ${existing.TELEGRAM_ALLOWED_USER_IDS}`,
+      `  • ${t("Owner", "Владелец")}:     ${existing.TELEGRAM_OWNER_USER_IDS}`,
     );
     console.log(
       `  • Deepgram:  ${existing.DEEPGRAM_LANGUAGE || "multi"}   ·   TZ: ${existing.ASSISTANT_TIMEZONE || "?"}`,
@@ -1108,18 +1110,18 @@ async function main() {
   head(
     4,
     t(
-      "Access — who the bot answers at all",
-      "Доступ — кому бот вообще отвечает",
+      "Owner — who controls the installation",
+      "Владелец — кто управляет установкой",
     ),
   );
   console.log(
-    `  ${C.y}${t("IMPORTANT:", "ВАЖНО:")}${C.x} ${t("Iva answers ONLY trusted Telegram IDs.", "Iva отвечает ТОЛЬКО доверенным Telegram ID.")}`,
+    `  ${C.y}${t("IMPORTANT:", "ВАЖНО:")}${C.x} ${t("This ID receives owner-only operational controls.", "Этот ID получит служебные права владельца.")}`,
   );
   console.log(
-    `  ${t("Without at least one ID the bot stays silent to everyone (that's how your data is protected).", "Без хотя бы одного ID бот промолчит всем (так ваши данные защищены).")}`,
+    `  ${t("Other private users are registered automatically with isolated memory.", "Остальные пользователи личных чатов регистрируются автоматически с изолированной памятью.")}`,
   );
   const ids = new Set(
-    (existing.TELEGRAM_ALLOWED_USER_IDS || "")
+    (existing.TELEGRAM_OWNER_USER_IDS || "")
       .split(/[,\s]+/)
       .map((s) => s.trim())
       .filter(Boolean),
@@ -1139,16 +1141,11 @@ async function main() {
         );
         found.forEach((u, i) => console.log(`   ${i + 1}. ${u.id}  ${u.name}`));
         const pick = await ask(
-          `  ${t("Which IDs to add? numbers comma-separated (Enter — add all)", "Чьи ID добавить? номера через запятую (Enter — добавить всех)")}`,
-          "",
+          `  ${t("Which one is the owner? number", "Кто владелец? номер")}`,
+          "1",
         );
-        const chosen = pick
-          ? pick
-              .split(/[,\s]+/)
-              .map((n) => found[parseInt(n, 10) - 1])
-              .filter(Boolean)
-          : found;
-        chosen.forEach((u) => ids.add(u.id));
+        const chosen = found[parseInt(pick, 10) - 1];
+        if (chosen) ids.add(chosen.id);
       } else {
         console.log(
           `${C.y}  ${t("I see no messages to the bot. Did you definitely send one? (if a webhook is set, getUpdates returns nothing)", "Не вижу сообщений боту. Точно написали? (если уже стоит вебхук — getUpdates не отдаёт апдейты)")}${C.x}`,
@@ -1165,18 +1162,15 @@ async function main() {
         `  ${t("Enter your Telegram ID manually (find it: message @userinfobot), or Enter — try again", "Введите свой Telegram ID вручную (узнать: напишите @userinfobot), или Enter — попробовать снова")}`,
         "",
       );
-      manual
-        .split(/[,\s]+/)
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .forEach((s) => ids.add(s));
+      const ownerId = manual.trim();
+      if (ownerId) ids.add(ownerId);
     }
   }
-  out.TELEGRAM_ALLOWED_USER_IDS = [...ids].join(",");
+  out.TELEGRAM_OWNER_USER_IDS = [...ids][0] ?? "";
   out.TELEGRAM_DIGEST_CHAT_ID =
     existing.TELEGRAM_DIGEST_CHAT_ID || [...ids][0] || "";
   console.log(
-    `  → ${t("access granted to ID", "доступ разрешён ID")}: ${C.g}${out.TELEGRAM_ALLOWED_USER_IDS}${C.x}`,
+    `  → ${t("owner controls granted to ID", "права владельца выданы ID")}: ${C.g}${out.TELEGRAM_OWNER_USER_IDS}${C.x}`,
   );
 
   // ── Step 5: timezone, vault, port ─────────────────────────────────
@@ -1258,7 +1252,7 @@ async function main() {
     `  ${t("Provider", "Провайдер")}: ${provider} · ${t("Model", "Модель")}: ${C.g}${chosenModel}${C.x} · Deepgram: ${out.DEEPGRAM_LANGUAGE} · ${t("Bot", "Бот")}: ${C.g}@${out.TELEGRAM_BOT_USERNAME}${C.x}`,
   );
   console.log(
-    `  ${t("Access", "Доступ")}: ${out.TELEGRAM_ALLOWED_USER_IDS} · TZ: ${out.ASSISTANT_TIMEZONE} · vault: ${out.ASSISTANT_VAULT_DIR} · ${t("lang", "язык")}: ${out.AGENT_LANGUAGE}`,
+    `  ${t("Owner", "Владелец")}: ${out.TELEGRAM_OWNER_USER_IDS} · TZ: ${out.ASSISTANT_TIMEZONE} · vault: ${out.ASSISTANT_VAULT_DIR} · ${t("lang", "язык")}: ${out.AGENT_LANGUAGE}`,
   );
   hr();
   rl.close();

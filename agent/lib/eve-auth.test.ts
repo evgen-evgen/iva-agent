@@ -4,11 +4,26 @@ import { randomBytes } from "node:crypto";
 import test, { type TestContext } from "node:test";
 import { routeAuth } from "eve/channels/auth";
 import { assistantBearerAuth, createEveAuth } from "./eve-auth.ts";
+import {
+  createTenantServiceGrant,
+  TENANT_GRANT_HEADER,
+} from "./tenant-service-grant.ts";
 
 const TOKEN = randomBytes(32).toString("base64url");
 const request = (host: string, token?: string) =>
   new Request(`http://${host}/eve/v1/session`, {
     headers: token ? { authorization: `Bearer ${token}` } : {},
+  });
+
+const tenantRequest = (token: string, grant: string, bodyTenant?: string) =>
+  new Request("http://internal/eve/v1/session", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      [TENANT_GRANT_HEADER]: grant,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ tenantId: bodyTenant }),
   });
 
 test("bearer auth accepts only the configured secret", async () => {
@@ -21,6 +36,40 @@ test("bearer auth accepts only the configured secret", async () => {
     principalId: "iva-internal-client",
     principalType: "service",
   });
+});
+
+test("a signed service grant scopes auth independently of request payload", async () => {
+  const tenantId = "t_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const grant = createTenantServiceGrant(TOKEN, tenantId, "memory-daily");
+  const auth = assistantBearerAuth(TOKEN);
+  assert.deepEqual(
+    await auth(
+      tenantRequest(TOKEN, grant, "t_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+    ),
+    {
+      attributes: {
+        tenant_id: tenantId,
+        tenant_grant: "verified",
+        service_purpose: "memory-daily",
+      },
+      authenticator: "iva-tenant-grant",
+      issuer: "iva",
+      principalId: `tenant:${tenantId}`,
+      principalType: "service",
+    },
+  );
+});
+
+test("tampered and expired service grants fail authentication", async () => {
+  const tenantId = "t_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const auth = assistantBearerAuth(TOKEN);
+  const valid = createTenantServiceGrant(TOKEN, tenantId, "digest");
+  assert.equal(await auth(tenantRequest(TOKEN, `${valid}tampered`)), null);
+  const expired = createTenantServiceGrant(TOKEN, tenantId, "digest", {
+    now: 1_000,
+    ttlMs: 1,
+  });
+  assert.equal(await auth(tenantRequest(TOKEN, expired)), null);
 });
 
 test("production auth rejects a spoofed loopback Host without a bearer", async () => {

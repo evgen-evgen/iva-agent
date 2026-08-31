@@ -11,10 +11,12 @@
 // динамический скилл перекрывает одноимённый встроенный.
 import { defineDynamic, defineSkill } from "eve/skills";
 import { readLiveSkills } from "../lib/custom-skills.ts";
+import { ownerCapabilitiesAllowed } from "../lib/tenant-capabilities.ts";
 
 export default defineDynamic({
   events: {
-    "turn.started": async () => {
+    "turn.started": async (_event, ctx) => {
+      if (!ownerCapabilitiesAllowed(ctx)) return null;
       const skills = await readLiveSkills();
       const entries = Object.entries(skills);
       if (entries.length === 0) return null; // ничего не добавляем

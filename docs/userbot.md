@@ -63,7 +63,7 @@ state/reason values; bearer tokens and transport errors are not returned.
 - `TELEGRAM_EXPOSED_TOOLS=read-only` in `.env` — the agent can read/search but physically
   cannot send or mutate (the proxy prunes all write tools). Onboarding still works.
 - `TELEGRAM_MCP_PORT` (default `8724`), `TELEGRAM_USERBOT_QR_CHAT_ID` (defaults to the first
-  of `TELEGRAM_ALLOWED_USER_IDS`). The default needs no config. If you set a custom port,
+  from `TELEGRAM_OWNER_USER_IDS`). The default needs no config. If you set a custom port,
   run `iva userbot setup` (restarts the proxy) **and** `iva restart` (iva reads the port from
   its env at start) so both agree.
 - The proxy bearer lives in `data/telegram-userbot.token` (0600), read at runtime by both the

@@ -82,7 +82,7 @@ The four memory-rollup cadences moved off systemd and run as `agent/schedules/*.
 | `memory-yearly`  | `25 4 1 1 *` (Jan 1, 04:25) | monthlies → yearly summary (silent)                                                                                                |
 | `digest`         | `0 8 * * *` (08:00 daily)   | morning digest — **off by default**, enable via `digestSchedule.enabled` in `data/settings.json`                                   |
 
-Each one is a thin spawner (`agent/lib/schedule-runner.ts`): it runs the exact same command the old timer did (`flock -w 3900 .memory.lock node --env-file=.env scripts/memory/rollup.ts <period>`), under a hard timeout, and records the outcome to `data/rollup-status.json`. `iva.service` sets `Environment=TZ` from `ASSISTANT_TIMEZONE` (`ivaServiceBody()` in `scripts/cli/systemd.ts`), so cron expressions above tick in the configured local time, not the host's system TZ — Nitro's schedule runner carries no timezone of its own otherwise.
+Each schedule starts the tenant dispatcher (`scripts/memory/tenants.ts`). It enumerates active registry tenants with bounded concurrency and records independent locks/cursors under each tenant's `runtime/jobs/`; rollup and Brain serialize only when they target the same tenant. `iva.service` sets `Environment=TZ` from `ASSISTANT_TIMEZONE` (`ivaServiceBody()` in `scripts/cli/systemd.ts`), so cron expressions above tick in the configured local time, not the host's system TZ — Nitro's schedule runner carries no timezone of its own otherwise.
 
 Nitro's scheduled-task runner has no `Persistent=true` equivalent, so a period missed while the server was down does **not** auto-fire on its own. `agent/lib/schedule-migration.ts` replaces that: on every server start it compares each period's last recorded success against its most recent scheduled point and, if it's stale and still within a grace window (20h daily / 3d weekly / 7d monthly / 14d yearly), runs it once. A brand-new install seeds a baseline and runs nothing on its first boot, so installing never triggers an immediate storm of catch-up jobs. The same start-up hook also retires the old `iva-memory-{daily,weekly,monthly,yearly}.{service,timer}` units on any existing install, by exact name only — any unrelated timer you've set up yourself is left alone.
 
@@ -103,19 +103,19 @@ Full CLI reference: [cli](./cli.md). What the rollups actually write: [memory](.
 
 ## nginx and TLS
 
-You need neither for Telegram - polling is outbound-only. If you expose the Telegram webhook, proxy only `/eve/v1/telegram`; that route verifies `X-Telegram-Bot-Api-Secret-Token` and the Telegram user allowlist.
+You need neither for Telegram - polling is outbound-only. If you expose the Telegram webhook, proxy only `/eve/v1/telegram`; that route verifies `X-Telegram-Bot-Api-Secret-Token`. Authenticated private senders are isolated tenants and groups/channels are rejected.
 
 Exposing the Eve HTTP channel is a separate security decision. Require HTTPS and preserve the `Authorization: Bearer ...` header so Iva can verify `ASSISTANT_BEARER`. Never remove the bearer check merely because the proxy connects to `127.0.0.1`: loopback describes the proxy-to-Iva hop, not the original caller.
 
 ## Moving servers
 
-Your state is three things: the vault (its own git repo, pushed nightly by the Brain pass), `.env` (all keys), and `data/` (`tasks.json`, `usage.jsonl`).
+Your complete state is `.env` plus `data/`: the tenant registry, every tenant root (vault, state database, settings and cursors), and shared operational logs. See [tenant storage](tenant-storage.md#backup-and-recovery).
 
-1. Old box: `npm run brain` to push the vault, then copy `.env` and `data/` off.
+1. Old box: `npm run brain`, stop Iva and the poll bridge, then copy `.env` and the complete `data/` tree.
 2. New box: run the installer ([install](./install.md)) with `--skip-setup`, drop in `.env`.
-3. Clone the vault back — `gh repo clone <user>/iva-vault <vault-dir>` — restore `data/`, then `iva restart`.
+3. Restore `data/` with its ownership and modes, then `iva restart` and run `iva doctor`.
 
-If all you have left is the vault repo, you lose open tasks and token history. Memory survives intact.
+If all you have left is a vault repo, the registry mapping, tasks, settings, attachments metadata, and job state are missing; do not attach it to a guessed tenant ID.
 
 ## Vercel (advanced)
 

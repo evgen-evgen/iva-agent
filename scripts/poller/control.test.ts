@@ -33,6 +33,8 @@ type ControlModule = {
     },
   ) => Promise<boolean>;
   OUT_OF_BAND_COMMANDS: string[];
+  OWNER_ONLY_COMMANDS: Set<string>;
+  OWNER_ONLY_MENU_SIDS: Set<string>;
 };
 type RunStatusModule = {
   setChatStatus: (chatKey: string, patch: Record<string, unknown>) => void;
@@ -56,7 +58,8 @@ const dataDir = mkdtempSync(join(tmpdir(), "iva-control-"));
 process.env.ASSISTANT_DATA_DIR = dataDir;
 process.env.TELEGRAM_BOT_TOKEN = "424242:test-token";
 process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN = "test-secret";
-process.env.TELEGRAM_ALLOWED_USER_IDS = "42";
+process.env.TELEGRAM_ALLOWED_USER_IDS = "42,43";
+process.env.TELEGRAM_OWNER_USER_IDS = "42";
 process.env.IVA_PORT = "8723";
 delete process.env.ASSISTANT_HOST;
 delete process.env.AGENT_LANGUAGE; // без настроек язык моста — ru
@@ -66,20 +69,25 @@ const [controlModule, runStatusModule, wizardsModule] = (await Promise.all([
   import(`#lib/run-status.ts?control-test=${Date.now()}`),
   import("./wizards.ts"),
 ])) as [unknown, unknown, unknown];
-const { handleAwaitNonText, handleControl, OUT_OF_BAND_COMMANDS } =
-  controlModule as ControlModule;
+const {
+  handleAwaitNonText,
+  handleControl,
+  OUT_OF_BAND_COMMANDS,
+  OWNER_ONLY_COMMANDS,
+  OWNER_ONLY_MENU_SIDS,
+} = controlModule as ControlModule;
 const status = runStatusModule as RunStatusModule;
 const { flows } = wizardsModule as WizardsModule;
 
 const CANCEL_ROUTE = "http://127.0.0.1:8723/eve/v1/telegram/cancel";
 const trustedFrom = { id: 42, is_bot: false };
-const chat = { id: 7, type: "private" };
+const chat = { id: 42, type: "private" };
 
 function runningTurn(overrides: Record<string, unknown> = {}) {
-  status.setChatStatus("7:", {
+  status.setChatStatus("42:", {
     status: "running",
     // Namespaced-токен пишут версии до фикса #110 — наружу обязан уйти channel-local.
-    continuationToken: "telegram:7::",
+    continuationToken: "telegram:42::",
     sessionId: "session-1",
     turnId: "turn-1",
     ...overrides,
@@ -135,6 +143,73 @@ function recordingDeps() {
     },
   };
 }
+
+test("ordinary users cannot run owner commands", async () => {
+  assert.deepEqual([...OWNER_ONLY_COMMANDS].sort(), [
+    "/model",
+    "/restart",
+    "/think",
+    "/update",
+    "/usage",
+  ]);
+  assert.equal(OWNER_ONLY_COMMANDS.has("/new"), false);
+  assert.equal(OWNER_ONLY_COMMANDS.has("/stop"), false);
+  for (const command of OWNER_ONLY_COMMANDS) {
+    const { replies, cancels, deps } = recordingDeps();
+    const consumed = await handleControl(
+      {
+        update_id: 700,
+        message: {
+          message_id: 700,
+          date: 1,
+          chat: { id: 43, type: "private" },
+          from: { id: 43, is_bot: false },
+          text: command,
+        },
+      },
+      deps,
+    );
+    assert.equal(consumed, true, command);
+    assert.equal(replies.length, 1, command);
+    assert.match(replies[0][1], /только владельцу/u, command);
+    assert.deepEqual(cancels, [], command);
+  }
+});
+
+test("ordinary users cannot invoke stale privileged callbacks", async () => {
+  assert.equal(OWNER_ONLY_MENU_SIDS.has("svc"), true);
+  assert.equal(OWNER_ONLY_MENU_SIDS.has("chr"), false);
+  for (const data of [
+    "iva_update:do",
+    "iva_model:keep",
+    "iva_think:keep",
+    "iva_menu:svc:go:mem",
+    "iva_menu:ub:do:setup",
+  ]) {
+    const { acks, replies, cancels, deps } = recordingDeps();
+    const consumed = await handleControl(
+      {
+        update_id: 701,
+        callback_query: {
+          id: `cq-${data}`,
+          from: { id: 43, is_bot: false },
+          message: {
+            message_id: 701,
+            date: 1,
+            chat: { id: 43, type: "private" },
+          },
+          data,
+        },
+      },
+      deps,
+    );
+    assert.equal(consumed, true, data);
+    assert.equal(acks.length, 1, data);
+    assert.match(acks[0][1] ?? "", /только владельцу/u, data);
+    assert.deepEqual(replies, [], data);
+    assert.deepEqual(cancels, [], data);
+  }
+});
 
 test("secret document capture deletes before download and never reaches Eve", async () => {
   const events: Event[] = [];
@@ -216,7 +291,7 @@ test("the ⏹ Stop button cancels through the channel route, never through Eve",
       url: CANCEL_ROUTE,
       secret: "test-secret",
       // Токен нормализован: reset/cancel-роуты клеят имя канала сами (#110).
-      continuationToken: "7::",
+      continuationToken: "42::",
       turnId: "turn-1",
     },
   ]);
@@ -235,7 +310,7 @@ test("/stop takes the same door and stays silent while the status message speaks
     {
       url: CANCEL_ROUTE,
       secret: "test-secret",
-      continuationToken: "7::",
+      continuationToken: "42::",
       turnId: "turn-2",
     },
   ]);
@@ -244,7 +319,7 @@ test("/stop takes the same door and stays silent while the status message speaks
 });
 
 test("Stop on an idle chat explains itself and never calls cancel", async () => {
-  status.setChatStatus("7:", {
+  status.setChatStatus("42:", {
     status: "idle",
     sessionId: null,
     turnId: null,
@@ -256,12 +331,12 @@ test("Stop on an idle chat explains itself and never calls cancel", async () => 
 
   assert.deepEqual(cancels, []);
   assert.deepEqual(acks, [["cq-5", "Сейчас ничего не выполняется."]]);
-  assert.deepEqual(replies, [[7, "Сейчас ничего не выполняется."]]);
+  assert.deepEqual(replies, [[42, "Сейчас ничего не выполняется."]]);
 });
 
 test("a running turn without a continuation token is not cancellable", async () => {
   // Раннее статус-сообщение: ход уже помечен running, но turn.started ещё не записал токен.
-  status.setChatStatus("7:", {
+  status.setChatStatus("42:", {
     status: "running",
     continuationToken: null,
     sessionId: null,
@@ -315,7 +390,11 @@ test("repeated taps after the turn is gone stay harmless", async () => {
   const { cancels, acks, deps } = recordingDeps();
 
   await handleControl(stopButton(), deps);
-  status.setChatStatus("7:", { status: "idle", sessionId: null, turnId: null });
+  status.setChatStatus("42:", {
+    status: "idle",
+    sessionId: null,
+    turnId: null,
+  });
   await handleControl(stopButton(), deps);
   await handleControl(stopButton(), deps);
 
@@ -344,14 +423,14 @@ test("/start is answered by the bridge and never becomes a model turn", async ()
 
   assert.equal(consumed, true);
   assert.equal(replies.length, 1);
-  assert.equal(replies[0][0], 7);
+  assert.equal(replies[0][0], 42);
   assert.match(replies[0][1], /Iva/u);
   assert.match(replies[0][1], /\/help/u);
   assert.match(replies[0][1], /\/menu/u);
   assert.ok(OUT_OF_BAND_COMMANDS.includes("/start"));
 });
 
-test("/start from an untrusted user is not answered by the bridge", async () => {
+test("/start auto-admits and answers a new private user", async () => {
   const { replies, deps } = recordingDeps();
   const consumed = await handleControl(
     {
@@ -367,8 +446,8 @@ test("/start from an untrusted user is not answered by the bridge", async () => 
     deps,
   );
 
-  assert.equal(consumed, false); // дальше его молча уронит allowlist входного пайплайна
-  assert.deepEqual(replies, []);
+  assert.equal(consumed, true);
+  assert.equal(replies.length, 1);
 });
 
 test("non-private group-safe commands leave stale pending flows unchanged", async () => {
@@ -505,7 +584,7 @@ test("local callbacks reject non-private chats before cancellation or dispatch",
   }
 });
 
-test("a non-private rejection does not reveal controls to an untrusted user", async () => {
+test("a non-private rejection directs any user to a private chat", async () => {
   runningTurn();
   const { cancels, acks, deps } = recordingDeps();
   const update = stopButton();
@@ -519,7 +598,8 @@ test("a non-private rejection does not reveal controls to an untrusted user", as
 
   assert.equal(await handleControl(update, deps), true);
   assert.deepEqual(cancels, []);
-  assert.deepEqual(acks, [["cq-5", undefined]]);
+  assert.equal(acks[0]?.[0], "cq-5");
+  assert.match(String(acks[0]?.[1]), /личный чат/u);
 });
 
 test("malformed update callback is not claimed as a local control", async () => {
@@ -574,7 +654,7 @@ test("a falsey local reply does not authorize offset acknowledgement", async () 
 });
 
 test("a falsey callback ack does not claim a local control", async () => {
-  status.setChatStatus("7:", {
+  status.setChatStatus("42:", {
     status: "idle",
     sessionId: null,
     turnId: null,
@@ -588,7 +668,7 @@ test("a falsey callback ack does not claim a local control", async () => {
 });
 
 test("a false callback ack result does not claim a local control", async () => {
-  status.setChatStatus("7:", {
+  status.setChatStatus("42:", {
     status: "idle",
     sessionId: null,
     turnId: null,
@@ -643,7 +723,7 @@ test("model keep callback is retained when only spinner ack succeeds", async () 
         message: {
           message_id: 11,
           date: 1,
-          chat: { id: 71, type: "private" },
+          chat: { id: 42, type: "private" },
           from: trustedFrom,
           text: "/model",
         },
@@ -678,7 +758,7 @@ test("model keep callback is retained when only spinner ack succeeds", async () 
         message: {
           message_id: 71,
           date: 1,
-          chat: { id: 71, type: "private" },
+          chat: { id: 42, type: "private" },
         },
         data: "iva_model:keep",
       },

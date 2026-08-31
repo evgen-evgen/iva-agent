@@ -59,7 +59,7 @@ function fire(settings: string | null): Promise<unknown>[] {
   return started;
 }
 
-test("the morning digest stays silent until the owner switches it on", () => {
+test("the schedule always dispatches so each tenant can apply its own switch", async () => {
   for (const settings of [
     null, // свежая установка: файла настроек ещё нет
     "",
@@ -74,12 +74,15 @@ test("the morning digest stays silent until the owner switches it on", () => {
     '{"digestSchedule":{"enabled":"true"}}',
     '{"digestSchedule":{"enabled":1}}',
     '{"memoryReports":{"enabled":true}}', // чужой тумблер дайджест не включает
-  ])
-    assert.deepEqual(
-      fire(settings),
-      [],
-      `settings ${String(settings)} must start no digest`,
+  ]) {
+    const started = fire(settings);
+    assert.equal(
+      started.length,
+      1,
+      `settings ${String(settings)} must not globally suppress other tenants`,
     );
+    await started[0];
+  }
 });
 
 test("the morning digest runs once the switch says true", async () => {

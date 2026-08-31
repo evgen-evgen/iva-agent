@@ -1,6 +1,7 @@
 import { defineHook } from "eve/hooks";
 import { resolveModelProvider } from "../lib/model-provider.js";
 import { appendUsage, subagentTurnId } from "../lib/usage.js";
+import { operationalTenantId } from "../lib/tenant-session.js";
 
 // Учёт фактического расхода токенов. ОДИН хук ловит весь расход одного eve-агента без
 // двойного счёта: основной чат (channel.kind="telegram") и фоновые джобы через eve/client —
@@ -30,6 +31,7 @@ function record(
   sessionId: string,
   source: string,
   subagent?: string,
+  tenantId?: string,
 ): void {
   const u = data.usage;
   if (!u) return;
@@ -40,6 +42,7 @@ function record(
   if (inT + outT + cacheRead + cacheWrite === 0) return; // нет usage — не пишем нулевую строку
   appendUsage({
     ts: new Date().toISOString(),
+    tenantId,
     source,
     provider: PROVIDER,
     model: MODEL,
@@ -58,7 +61,13 @@ function record(
 export default defineHook({
   events: {
     "step.completed": (event, ctx) => {
-      record(event.data, ctx.session.id, ctx.channel.kind ?? "unknown");
+      record(
+        event.data,
+        ctx.session.id,
+        ctx.channel.kind ?? "unknown",
+        undefined,
+        operationalTenantId(ctx),
+      );
     },
     // Шаги инлайн-субагента (planner) — иначе его токены потерялись бы.
     //
@@ -83,6 +92,7 @@ export default defineHook({
           ctx.session.id,
           ctx.channel.kind ?? "unknown",
           event.data.subagentName,
+          operationalTenantId(ctx),
         );
       }
     },

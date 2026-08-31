@@ -65,7 +65,7 @@
 | ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | `bridge.admitted` / `bridge.dropped`                              | `updateId`, `chatId`, `messageId`, `kind` (`message`/`callback`), `decision` (`owned`/`terminal-drop`/`unownable`/`write-failed`) |
 | `bridge.delivered` / `bridge.rejected`                            | те же поля плюс `accepted` (`true`/`false`/`"handled"`), `ms`                                                                     |
-| `inbound.received`                                                | `chatId`, `chatType`, `messageId`, `userId`, `allowlisted`; содержимое: `text`                                                    |
+| `inbound.received`                                                | `chatId`, `chatType`, `messageId`, `userId`, `tenantAdmitted`; содержимое: `text`                                                 |
 | `inbound.accepted` / `inbound.dropped`                            | `chatId`, `chatKey`, `parts`, `partChars[]`; содержимое: `context[]`                                                              |
 | `gate.inbound` / `gate.web`                                       | `surface`, `blocked`, `reason`, `flags[]`, `truncatedChars`, `chars`                                                              |
 | `turn.bound`                                                      | `chatKey`, `updateKey`                                                                                                            |

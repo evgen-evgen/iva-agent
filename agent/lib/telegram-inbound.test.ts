@@ -10,7 +10,7 @@ import fc from "fast-check";
 // импорта — i18n и settings читают ASSISTANT_DATA_DIR на загрузке модуля.
 const root = mkdtempSync(join(tmpdir(), "iva-telegram-inbound-"));
 process.env.ASSISTANT_DATA_DIR = join(root, "data");
-process.env.ASSISTANT_VAULT_DIR = join(root, "vault");
+process.env.ASSISTANT_VAULT_DIR = join(root, "tenant-a", "vault");
 process.env.ASSISTANT_TIMEZONE = "UTC";
 process.env.AGENT_LANGUAGE = "en";
 process.env.TELEGRAM_ALLOWED_USER_IDS = "42";
@@ -84,6 +84,12 @@ function harness(overrides: Partial<Effects> = {}) {
   };
   const effects: Effects = {
     botUsername: "iva_bot",
+    resolveTenant: () => ({
+      tenantId: "t_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      role: "owner",
+      dataRoot: join(root, "tenant-a"),
+      vaultRoot: VAULT,
+    }),
     request: (method) => {
       calls.methods.push(method);
       return Promise.resolve({
@@ -164,6 +170,11 @@ await test("чистый личный текст едет к модели без
   assert.equal(result.context, undefined);
   assert.equal(result.auth?.principalId, "telegram:42");
   assert.equal(result.auth?.attributes.chat_id, "77");
+  assert.equal(
+    result.auth?.attributes.tenant_id,
+    "t_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  );
+  assert.equal(result.auth?.attributes.tenant_role, "owner");
   assert.equal(calls.accepted, 1);
   assert.equal(calls.typing, 1);
   assert.match(dailyText(), /hello there/u);
@@ -217,7 +228,8 @@ await test("мусорные координаты не будят модель �
   assert.equal(dailyText(), before);
 });
 
-await test("геопозиция в группе требует ответа боту", async () => {
+await test("первая tenant-версия отвергает группы даже при ответе боту", async () => {
+  const before = dailyText();
   const raw = {
     message_id: 8,
     chat: { id: -77, type: "supergroup" },
@@ -232,17 +244,18 @@ await test("геопозиция в группе требует ответа б�
   assert.equal(ignored.calls.accepted, 0);
 
   const reply = harness();
-  const result = await inbound.runTelegramInbound(
-    message({
-      ...raw,
-      reply_to_message: { from: { id: 1, is_bot: true } },
-    }),
-    reply.effects,
+  assert.equal(
+    await inbound.runTelegramInbound(
+      message({
+        ...raw,
+        reply_to_message: { from: { id: 1, is_bot: true } },
+      }),
+      reply.effects,
+    ),
+    null,
   );
-  assert.deepEqual(result?.context, [
-    '[telegram_location]\n{"latitude":55.75,"longitude":37.62}',
-  ]);
-  assert.equal(reply.calls.accepted, 1);
+  assert.equal(reply.calls.accepted, 0);
+  assert.equal(dailyText(), before);
 });
 
 await test("геопозиция в собранном burst сохраняет порядок с текстом", async () => {
@@ -291,28 +304,88 @@ await test("помеченный lookalikes текст едет нормализ
   assert.deepEqual(result?.context, ["привет, как дела"]);
 });
 
-await test("allowlist fail-closed: пустой список не пускает никого", async (t) => {
-  const saved = process.env.TELEGRAM_ALLOWED_USER_IDS;
-  process.env.TELEGRAM_ALLOWED_USER_IDS = "";
-  t.after(() => {
-    process.env.TELEGRAM_ALLOWED_USER_IDS = saved;
-  });
+await test("пустой legacy allowlist не блокирует нового private tenant", async () => {
   const { calls, effects } = harness();
 
-  assert.equal(
-    await inbound.runTelegramInbound(privateText("пусти"), effects),
-    null,
-  );
-  assert.equal(calls.accepted, 0);
-  assert.equal(calls.sent.length, 1);
-  assert.match(calls.sent[0], /TELEGRAM_ALLOWED_USER_IDS/u);
+  const result = await inbound.runTelegramInbound(privateText("пусти"), effects);
+  assert.deepEqual(result?.context, ["пусти"]);
+  assert.equal(calls.accepted, 1);
+  assert.equal(calls.sent.length, 0);
 });
 
-await test("чужой user id получает подсказку только в личке, в группе — тишина", async () => {
-  const stranger = { id: "999", isBot: false };
-  const inPrivate = harness();
+await test("missing identity, failed tenant resolution, and groups start no tenant turn", async () => {
+  const before = dailyText();
+  let resolverCalls = 0;
+  const unresolved = harness({
+    resolveTenant: () => {
+      resolverCalls += 1;
+      throw new Error("unknown tenant");
+    },
+  });
   assert.equal(
     await inbound.runTelegramInbound(
+      privateText("unknown"),
+      unresolved.effects,
+    ),
+    null,
+  );
+  assert.equal(resolverCalls, 1);
+  assert.equal(unresolved.calls.accepted, 0);
+  assert.equal(unresolved.calls.typing, 0);
+
+  const missing = harness({
+    resolveTenant: () => {
+      resolverCalls += 1;
+      throw new Error("must not resolve");
+    },
+  });
+  assert.equal(
+    await inbound.runTelegramInbound(
+      message(
+        {
+          message_id: 70,
+          chat: { id: 77, type: "private" },
+          text: "missing sender",
+        },
+        { from: undefined },
+      ),
+      missing.effects,
+    ),
+    null,
+  );
+  assert.equal(resolverCalls, 1);
+
+  const group = harness({
+    resolveTenant: () => {
+      resolverCalls += 1;
+      throw new Error("must not resolve");
+    },
+  });
+  assert.equal(
+    await inbound.runTelegramInbound(
+      message(
+        {
+          message_id: 71,
+          chat: { id: -77, type: "group" },
+          from: { id: 42, is_bot: false },
+          text: "/task group",
+        },
+        { chat: { id: "-77", type: "group" } },
+      ),
+      group.effects,
+    ),
+    null,
+  );
+  assert.equal(resolverCalls, 1);
+  assert.equal(group.calls.accepted, 0);
+  assert.equal(dailyText(), before);
+});
+
+await test("новый user id допускается в личке, но не в группе", async () => {
+  const stranger = { id: "999", isBot: false };
+  const inPrivate = harness();
+  assert.deepEqual(
+    (await inbound.runTelegramInbound(
       message(
         {
           message_id: 5,
@@ -323,11 +396,10 @@ await test("чужой user id получает подсказку только 
         { from: stranger },
       ),
       inPrivate.effects,
-    ),
-    null,
+    ))?.context,
+    ["привет"],
   );
-  assert.equal(inPrivate.calls.sent.length, 1);
-  assert.match(inPrivate.calls.sent[0], /999/u);
+  assert.equal(inPrivate.calls.sent.length, 0);
 
   const inGroup = harness();
   assert.equal(
@@ -480,7 +552,8 @@ await test("фото: vision в контексте, повтор того же �
   assert.ok(first?.context);
   assert.match(first.context[0], /^\[photo\] image \(/u);
   assert.match(first.context[0], /What's in it: a whiteboard with numbers/u);
-  assert.ok(first.context[0].includes(`${VAULT}/attachments/`));
+  assert.match(first.context[0], /attachment:att_[0-9a-f]{32}/u);
+  assert.doesNotMatch(first.context[0], /\/attachments\//u);
   assert.equal(calls.downloads, 1);
   assert.equal(calls.vision, 1);
 
@@ -1259,7 +1332,7 @@ function traceEvents(): Record<string, unknown>[] {
   }
 }
 
-void test("Trace: принятый апдейт и вердикт allowlist попадают в журнал", async () => {
+void test("Trace: принятый tenant-апдейт попадает в журнал", async () => {
   const { effects } = harness();
   const before = traceEvents().length;
 
@@ -1277,13 +1350,13 @@ void test("Trace: принятый апдейт и вердикт allowlist по
     chatType: "private",
     messageId: "5",
     userId: "42",
-    allowlisted: true,
+    tenantAdmitted: true,
     textChars: 6,
     text: "привет",
   });
 });
 
-void test("Trace: чужой апдейт остаётся в журнале с отказом allowlist", async () => {
+void test("Trace: новый private-отправитель помечается как tenant", async () => {
   const { effects } = harness();
   const before = traceEvents().length;
 
@@ -1303,13 +1376,13 @@ void test("Trace: чужой апдейт остаётся в журнале с 
     effects,
   );
 
-  assert.equal(result, null);
+  assert.deepEqual(result?.context, ["пусти"]);
   const added = traceEvents()
     .slice(before)
     .filter((event) => event.kind === "inbound");
   assert.equal(added.length, 1);
   assert.equal(added[0].name, "received");
-  assert.equal((added[0].data as Record<string, unknown>).allowlisted, false);
+  assert.equal((added[0].data as Record<string, unknown>).tenantAdmitted, true);
 });
 
 void test("Trace: вердикт inbound-Gate уезжает с ключом того же апдейта", async () => {
@@ -1345,4 +1418,57 @@ void test("Trace: гейт вне хода в журнал не пишет", asy
   sanitizeInbound("обычный текст без всякого хода");
 
   assert.equal(traceEvents().length, before);
+});
+
+void test("all non-file transcript parts stay in the resolved tenant vault", async () => {
+  const vaultA = join(root, "tenant-transcript-a", "vault");
+  const vaultB = join(root, "tenant-transcript-b", "vault");
+  const tenant = (marker: "a" | "b", vaultRoot: string) => ({
+    tenantId: `t_${marker.repeat(32)}`,
+    role: "user" as const,
+    dataRoot: join(root, `tenant-transcript-${marker}`),
+    vaultRoot,
+  });
+  const a = harness({ resolveTenant: () => tenant("a", vaultA) });
+  const b = harness({ resolveTenant: () => tenant("b", vaultB) });
+
+  await inbound.runTelegramInbound(
+    privateText("carrier-a", { iva_buffered: ["queued-a"] }),
+    a.effects,
+  );
+  for (const raw of [
+    { location: { latitude: 1.25, longitude: 2.5 } },
+    { contact: { first_name: "ContactA", phone_number: "+100" } },
+    { poll: { question: "PollA?" } },
+  ]) {
+    await inbound.runTelegramInbound(
+      message({
+        message_id: 90,
+        chat: { id: 77, type: "private" },
+        from: { id: 42, is_bot: false },
+        ...raw,
+      }),
+      a.effects,
+    );
+  }
+  await inbound.runTelegramInbound(privateText("carrier-b"), b.effects);
+
+  const transcript = (vaultRoot: string) =>
+    readdirSync(join(vaultRoot, "daily"))
+      .map((name) => readFileSync(join(vaultRoot, "daily", name), "utf8"))
+      .join("\n");
+  const textA = transcript(vaultA);
+  const textB = transcript(vaultB);
+  for (const marker of [
+    "carrier-a",
+    "queued-a",
+    "ContactA",
+    "PollA?",
+    "1.25, 2.5",
+  ]) {
+    assert.equal(textA.includes(marker), true, marker);
+    assert.equal(textB.includes(marker), false, marker);
+  }
+  assert.match(textB, /carrier-b/u);
+  assert.doesNotMatch(textA, /carrier-b/u);
 });

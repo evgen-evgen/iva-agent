@@ -1,8 +1,17 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after, type TestContext } from "node:test";
+import { TenantRegistry } from "#lib/tenant-registry.ts";
+import { reconcileTelegramTenants } from "#lib/telegram-tenant-provisioning.ts";
+import { resolveTelegramTenantForUserId } from "#lib/telegram-tenant-resolver.ts";
 
 type Button = { text: string; callback_data: string };
 type Rows = Button[][];
@@ -88,7 +97,14 @@ type RunStatus = {
 
 const statusDir = mkdtempSync(join(tmpdir(), "iva-menu-core-status-"));
 const previousDataDir = process.env.ASSISTANT_DATA_DIR;
+const previousAllowed = process.env.TELEGRAM_ALLOWED_USER_IDS;
+const previousOwners = process.env.TELEGRAM_OWNER_USER_IDS;
 process.env.ASSISTANT_DATA_DIR = statusDir;
+process.env.TELEGRAM_ALLOWED_USER_IDS = "77";
+process.env.TELEGRAM_OWNER_USER_IDS = "77";
+const tenantRegistry = new TenantRegistry(join(statusDir, "tenants.sqlite"));
+reconcileTelegramTenants(tenantRegistry);
+tenantRegistry.close();
 
 const coreModulePath: string = "./core.ts";
 const { default: core } = (await import(coreModulePath)) as {
@@ -99,16 +115,19 @@ const runStatus = (await import("#lib/run-status.ts")) as RunStatus;
 after(() => {
   if (previousDataDir === undefined) delete process.env.ASSISTANT_DATA_DIR;
   else process.env.ASSISTANT_DATA_DIR = previousDataDir;
+  if (previousAllowed === undefined)
+    delete process.env.TELEGRAM_ALLOWED_USER_IDS;
+  else process.env.TELEGRAM_ALLOWED_USER_IDS = previousAllowed;
+  if (previousOwners === undefined) delete process.env.TELEGRAM_OWNER_USER_IDS;
+  else process.env.TELEGRAM_OWNER_USER_IDS = previousOwners;
   rmSync(statusDir, { recursive: true, force: true });
 });
 
 function useVault(t: TestContext): string {
-  const vault = mkdtempSync(join(tmpdir(), "iva-menu-core-vault-"));
-  const previousVault = process.env.ASSISTANT_VAULT_DIR;
-  process.env.ASSISTANT_VAULT_DIR = vault;
+  const vault = resolveTelegramTenantForUserId("77").vaultRoot;
+  rmSync(vault, { recursive: true, force: true });
+  mkdirSync(vault, { recursive: true });
   t.after(() => {
-    if (previousVault === undefined) delete process.env.ASSISTANT_VAULT_DIR;
-    else process.env.ASSISTANT_VAULT_DIR = previousVault;
     rmSync(vault, { recursive: true, force: true });
   });
   return vault;

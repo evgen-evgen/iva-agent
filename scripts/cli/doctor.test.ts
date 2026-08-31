@@ -43,7 +43,7 @@ function completeEnv(): Record<string, string> {
     OLLAMA_MODEL: "model",
     DEEPGRAM_API_KEY: "deepgram-key",
     TELEGRAM_BOT_TOKEN: "telegram-token",
-    TELEGRAM_ALLOWED_USER_IDS: "1",
+    TELEGRAM_OWNER_USER_IDS: "1",
     ASSISTANT_BEARER: "b".repeat(43),
     TAVILY_API_KEY: "tavily-key",
   };
@@ -358,7 +358,7 @@ test("opencode diagnostics preserve required-key order", async (t) => {
 
   assert.equal(
     failures[0],
-    ".env incomplete, missing: OPENCODE_API_KEY, OPENCODE_MODEL, DEEPGRAM_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USER_IDS, ASSISTANT_BEARER — run: iva config",
+    ".env incomplete, missing: OPENCODE_API_KEY, OPENCODE_MODEL, DEEPGRAM_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_OWNER_USER_IDS, ASSISTANT_BEARER — run: iva config",
   );
 });
 

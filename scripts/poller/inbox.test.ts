@@ -164,7 +164,7 @@ void test("callback inbox keys are stable passthrough keys and cannot collide wi
   assert.deepEqual(batch, { update: callbackUpdate, updateIds: [102] });
 });
 
-void test("an allowed inline callback has a bounded sender key and remains passthrough", async () => {
+void test("an inline callback is rejected because it has no private-chat tenant", async () => {
   const candidate = inlineCallback(103);
   const key = inboxKeyFor(candidate);
   assert.match(key ?? "", /^callback:inline:[0-9a-f]{64}$/u);
@@ -177,9 +177,9 @@ void test("an allowed inline callback has a bounded sender key and remains passt
         return Promise.resolve();
       },
     }),
-    "owned",
+    "terminal-drop",
   );
-  assert.deepEqual(owned, [key]);
+  assert.deepEqual(owned, []);
   const document = inboxDocument(candidate);
   assert.deepEqual(
     selectReadyInboxBatch(key as string, document.queues[key as string], 0, {
@@ -463,7 +463,7 @@ void test("trusted local inbox write fault fails ownership proof", async () => {
   );
 });
 
-void test("callback admission owns allowed users, terminally drops known unauthorised users, and fails closed without a key", async () => {
+void test("callback admission owns every private user and fails closed without a key", async () => {
   const owned: Array<[string, number]> = [];
   assert.equal(
     await admitTelegramUpdate(callback(101), {
@@ -478,9 +478,12 @@ void test("callback admission owns allowed users, terminally drops known unautho
   assert.equal(
     await admitTelegramUpdate(callback(102, 99), {
       allowedUserIds: new Set(["42"]),
-      enqueueImpl: () => assert.fail("unauthorised callback must not persist"),
+      enqueueImpl: (key, candidate) => {
+        owned.push([key, candidate.update_id]);
+        return Promise.resolve();
+      },
     }),
-    "terminal-drop",
+    "owned",
   );
   const unownable = callback(103);
   assert.ok(unownable.callback_query);
@@ -513,7 +516,10 @@ void test("callback admission owns allowed users, terminally drops known unautho
     }),
     "unownable",
   );
-  assert.deepEqual(owned, [["callback:1:", 101]]);
+  assert.deepEqual(owned, [
+    ["callback:1:", 101],
+    ["callback:1:", 102],
+  ]);
 });
 
 void test("Trace: мост пишет вердикт приёма своим ключом апдейта", async () => {
@@ -523,9 +529,11 @@ void test("Trace: мост пишет вердикт приёма своим к�
     allowedUserIds: new Set(["42"]),
     enqueueImpl: () => Promise.resolve(),
   });
-  await admitTelegramUpdate(update(702, "чужое"), {
-    allowedUserIds: new Set(["7"]),
-    enqueueImpl: () => assert.fail("чужой апдейт не ставится в очередь"),
+  const group = update(702, "group");
+  assert.ok(group.message);
+  group.message.chat = { id: -100, type: "supergroup" };
+  await admitTelegramUpdate(group, {
+    enqueueImpl: () => assert.fail("group update must not be queued"),
   });
 
   const added = traceEvents().slice(before);

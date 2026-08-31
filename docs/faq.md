@@ -12,7 +12,7 @@ Yes — Iva runs entirely on your own keys: one model-provider key (OpenCode Go,
 
 ## Is my data private?
 
-Your memory is a plain-markdown vault in a private git repo you own; no third party stores it. An outbound gate redacts secrets before every Telegram send, and the user allowlist fails closed. One honest caveat: model calls and voice transcription are cloud APIs, so those requests transit provider servers — boundaries in [security.md](security.md).
+Each Telegram tenant's memory is a separate plain-markdown vault. An outbound gate redacts secrets before every Telegram send, and ordinary tenants do not receive owner tools. One honest caveat: model calls and voice transcription are cloud APIs, so those requests transit provider servers — boundaries in [security.md](security.md).
 
 ## How much does it cost to run?
 
@@ -47,6 +47,6 @@ Yes — that is the point. You talk, it files: daily transcripts, nightly rollup
 
 ## When NOT to use Iva
 
-- **You need a team or multi-user chat UI.** Iva is single-user by design: the allowlist admits a few trusted IDs and the vault belongs to one person. LibreChat fits teams better.
+- **You need a shared team chat.** Iva supports multiple isolated private users, not shared group memory or a collaborative team UI. LibreChat fits teams better.
 - **You want local model weights.** Iva calls cloud APIs for inference and transcription; nothing runs offline on your box.
 - **You want a hosted, no-ops product.** Iva expects you to own a VPS and occasionally run `iva doctor`. A ChatGPT subscription is simpler if you never want to touch a server.

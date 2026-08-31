@@ -51,7 +51,7 @@ def _first_id(csv: "str | None") -> "str | None":
 
 def _owner_chat_id() -> "str | None":
     return os.getenv("TELEGRAM_USERBOT_QR_CHAT_ID") or _first_id(
-        os.getenv("TELEGRAM_ALLOWED_USER_IDS")
+        os.getenv("TELEGRAM_OWNER_USER_IDS")
     )
 
 
@@ -70,7 +70,7 @@ async def _send_qr_to_bot(png: bytes, caption: str) -> None:
     if not token or not chat_id:
         raise RuntimeError(
             "нужны TELEGRAM_BOT_TOKEN и chat владельца "
-            "(TELEGRAM_USERBOT_QR_CHAT_ID или TELEGRAM_ALLOWED_USER_IDS) для доставки QR"
+            "(TELEGRAM_USERBOT_QR_CHAT_ID или TELEGRAM_OWNER_USER_IDS) для доставки QR"
         )
     async with httpx.AsyncClient(timeout=30) as http:
         resp = await http.post(

@@ -1,4 +1,4 @@
-import { defineTool } from "eve/tools";
+import { defineDynamic, defineTool } from "eve/tools";
 import { z } from "zod";
 import { execFileSync, spawn } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
@@ -6,6 +6,10 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { Worker } from "node:worker_threads";
 import { selfRestartViolation } from "../lib/self-restart-guard.ts";
+import {
+  assertOwnerCapabilities,
+  ownerCapabilitiesAllowed,
+} from "../lib/tenant-capabilities.ts";
 
 // Host-native bash. Переопределяет встроенный sandbox-bash eve: команда выполняется
 // напрямую на реальной файловой системе VPS через node:child_process (без sandbox).
@@ -251,7 +255,7 @@ export function normalizeCwd(cwd?: string): { cwd?: string; error?: string } {
   return { cwd: resolved };
 }
 
-export default defineTool({
+export const bashTool = defineTool({
   description:
     "Выполнить shell-команду НАПРЯМУЮ на хосте VPS (без sandbox, полный доступ к реальной " +
     "файловой системе и окружению). Возвращает { stdout, stderr, exitCode }. " +
@@ -290,7 +294,8 @@ export default defineTool({
           "(по умолчанию 120000)",
       ),
   }),
-  async execute({ command, cwd, timeoutMs }) {
+  async execute({ command, cwd, timeoutMs }, ctx) {
+    assertOwnerCapabilities(ctx);
     // Самоубийственные команды режем ДО запуска: рестарт собственного сервиса посреди
     // хода оставляет ход в running навсегда, сервис уходит в цикл переигрываний, а бот
     // немеет с HookConflictError (issue #68). Промпт-запрета мало — модели его игнорируют.
@@ -542,5 +547,16 @@ export default defineTool({
         // The main-thread timer remains a bounded fallback while its loop is responsive.
       }
     });
+  },
+});
+
+export default defineDynamic({
+  events: {
+    "session.started": (_event, ctx) =>
+      ownerCapabilitiesAllowed(ctx) ? bashTool : null,
+    "turn.started": (_event, ctx) =>
+      ownerCapabilitiesAllowed(ctx) ? bashTool : null,
+    "step.started": (_event, ctx) =>
+      ownerCapabilitiesAllowed(ctx) ? bashTool : null,
   },
 });

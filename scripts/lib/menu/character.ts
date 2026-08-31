@@ -7,6 +7,7 @@
 // ответов), поэтому смена формулировок/архетипов не трогает экран.
 import { join } from "node:path";
 import { writeFileAtomic } from "#lib/fs-atomic.ts";
+import { resolveTelegramTenantForUserId } from "#lib/telegram-tenant-resolver.ts";
 import {
   QUIZ,
   QUIZ_ANSWERS,
@@ -23,6 +24,7 @@ type Button = { text: string; callback_data: string };
 type View = { text: string; rows: Button[][] };
 type QuizState = { i: number; answers: number[]; code: string | null };
 type MenuState = {
+  userId: string;
   data: { quiz?: QuizState };
   awaitText?: unknown;
 };
@@ -43,9 +45,8 @@ function errorMessage(error: unknown): string {
 
 // vault/PERSONA.md: каталог = ASSISTANT_VAULT_DIR ?? "vault", относительный — от cwd
 // (как канал agent/channels/telegram.ts:182; оба процесса стартуют из /home/shima/iva).
-function vaultDir() {
-  const raw = process.env.ASSISTANT_VAULT_DIR ?? "vault";
-  return raw.startsWith("/") ? raw : join(process.cwd(), raw);
+function vaultDir(userId: string) {
+  return resolveTelegramTenantForUserId(userId).vaultRoot;
 }
 
 // Экран одного вопроса «i/10» + 4 кнопки-ответа (2×2, индекс = позиция в QUIZ_ANSWERS).
@@ -144,7 +145,7 @@ export default {
     if (verb === "apply") {
       const code = st.data.quiz?.code;
       if (!code) return ctx.show(st, SID); // нечего применять — вернуться в интро
-      const dir = vaultDir();
+      const dir = vaultDir(st.userId);
       try {
         await writeFileAtomic(
           join(dir, "PERSONA.md"),

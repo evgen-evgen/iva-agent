@@ -8,9 +8,9 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
-const EXPECTED_PRODUCTION_COUNT = 233;
+const EXPECTED_PRODUCTION_COUNT = 256;
 const EXPECTED_INVENTORY_SHA256 =
-  "364dc2a2fc67e8fcb465c059fe01b0b7d76e3d7b880287b514ed6adee28d50a0";
+  "469dd0b93fdafa3db8425fd806a90b733ad890706e934b57814ed035af04665d";
 
 // Node's native include globs filter loaded modules; they do not load untouched files.
 // This test pins the exact production path inventory and a separately measured 26-path
@@ -119,6 +119,11 @@ const EXPECTED_INVENTORY_SHA256 =
 // The rollup stale-cursor workaround `scripts/lib/rollup-stale-cursor.ts` came next.
 // Scoped coverage over `scripts/lib/rollup-stale-cursor.test.ts` reports it, so the
 // blind spot stays 26.
+// Telegram tenant isolation then added 23 production paths: the registry/context/store,
+// tenant-safe path and memory helpers, authenticated service grants, provisioning,
+// capability policy, opaque blob storage, transcript persistence, per-tenant background
+// dispatch, and the owner migration. Their focused unit, adversarial, migration and E2E
+// tests load the implementation paths; the framework-owned blind-spot list is unchanged.
 const MEASURED_UNREPORTED_BY_CATEGORY = {
   frameworkBoundaries: [
     "agent/agent.ts",

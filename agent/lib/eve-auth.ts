@@ -6,6 +6,10 @@ import {
   vercelOidc,
   type AuthFn,
 } from "eve/channels/auth";
+import {
+  TENANT_GRANT_HEADER,
+  verifyTenantServiceGrant,
+} from "./tenant-service-grant.ts";
 
 const SERVICE_AUTH = {
   attributes: {},
@@ -25,7 +29,22 @@ export function assistantBearerAuth(expectedToken?: string): AuthFn<Request> {
   return (request) => {
     if (!expected) return null;
     const received = extractBearerToken(request.headers.get("authorization"));
-    return received && equalSecret(received, expected) ? SERVICE_AUTH : null;
+    if (!received || !equalSecret(received, expected)) return null;
+    const encodedGrant = request.headers.get(TENANT_GRANT_HEADER);
+    if (encodedGrant === null) return SERVICE_AUTH;
+    const grant = verifyTenantServiceGrant(expected, encodedGrant);
+    if (grant === null) return null;
+    return {
+      attributes: {
+        tenant_id: grant.tenantId,
+        tenant_grant: "verified",
+        service_purpose: grant.purpose,
+      },
+      authenticator: "iva-tenant-grant",
+      issuer: "iva",
+      principalId: `tenant:${grant.tenantId}`,
+      principalType: "service",
+    };
   };
 }
 

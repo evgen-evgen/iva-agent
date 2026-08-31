@@ -19,7 +19,7 @@ import { readEnvValues, upsertEnv } from "../lib/env-file.ts";
 import { createFlows } from "../lib/tg-flow.ts";
 import type { ModelOption } from "../lib/model-catalog.ts";
 import type { TelegramFlowState } from "../lib/tg-flow.ts";
-import { ALLOWED, DATA_DIR_ABS, ENV_PATH, log } from "./config.ts";
+import { DATA_DIR_ABS, ENV_PATH, OWNERS, log } from "./config.ts";
 import { reply, sc, tg } from "./transport.ts";
 
 type FlowId = number | string;
@@ -685,7 +685,7 @@ async function handleWizardCallback(cq: {
   const messageId = cq.message?.message_id;
   await tg("answerCallbackQuery", { callback_query_id: cq.id }); // spinner only; never primary proof
   if (from === null) return false;
-  if (ALLOWED.size === 0 || !ALLOWED.has(from)) return true; // swallow untrusted taps
+  if (!OWNERS.has(from)) return true;
   const action = cq.data.replace(/^iva_(model|think):/, "");
   const st = getWizard(chatId, from);
   // No state (bridge restarted / TTL) or a tap on an older wizard message → stale.

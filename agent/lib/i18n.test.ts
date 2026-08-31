@@ -24,6 +24,8 @@ type ProbeResult = {
   commands: string[];
   botEn: Array<{ command: string; description: string }>;
   botRu: Array<{ command: string; description: string }>;
+  ordinaryHelp: string;
+  ordinaryBot: Array<{ command: string; description: string }>;
 };
 
 const PROBE = `
@@ -36,6 +38,8 @@ process.stdout.write(JSON.stringify({
   commands: m.COMMANDS.map((c) => c.command),
   botEn: m.botCommands("en"),
   botRu: m.botCommands("ru"),
+  ordinaryHelp: m.helpText({ owner: false }),
+  ordinaryBot: m.botCommands("en", { owner: false }),
 }));
 `;
 
@@ -147,6 +151,27 @@ test("botCommands returns Telegram command objects per language", () => {
     assert.doesNotMatch(c.command, /\//); // имя команды без ведущего слэша
     assert.ok(c.description.length >= 1 && c.description.length <= 256);
   }
+});
+
+test("ordinary help and Telegram command menu omit owner controls", () => {
+  const {
+    ordinaryHelp,
+    ordinaryBot: ordinaryCommands,
+    help,
+  } = probe({
+    agentLanguage: "en",
+  });
+  for (const command of ["restart", "update", "model", "think", "usage"]) {
+    assert.doesNotMatch(ordinaryHelp, new RegExp(`/${command}\\b`, "u"));
+    assert.equal(
+      ordinaryCommands.some((item) => item.command === command),
+      false,
+    );
+  }
+  for (const command of ["menu", "stop", "new", "task", "tasks"]) {
+    assert.match(ordinaryHelp, new RegExp(`/${command}\\b`, "u"));
+  }
+  assert.match(help, /\/restart\b/u);
 });
 
 test("startText greets in both languages and points at /help", () => {

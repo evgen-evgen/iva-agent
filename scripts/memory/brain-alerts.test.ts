@@ -25,10 +25,29 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CORE_CAP } from "#lib/core-cap.ts";
+import { tenantContextForRecord } from "#lib/tenant-context.ts";
+import { TenantRegistry } from "#lib/tenant-registry.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 
 type Run = { code: number | null; stderr: string; dataDir: string };
+
+function createJobTenant(dataDir: string) {
+  const registry = new TenantRegistry(join(dataDir, "tenants.sqlite"));
+  try {
+    const record = registry.create(
+      {
+        authenticator: "telegram-bot",
+        issuer: "telegram",
+        externalPrincipal: `telegram:${Date.now()}-${Math.random()}`,
+      },
+      { role: "owner", telegramDestination: "1" },
+    );
+    return tenantContextForRecord(record, join(dataDir, "tenants"));
+  } finally {
+    registry.close();
+  }
+}
 
 /** Установка, где ничего внешнего нет: раздутый CORE.md, карточка с открытым фенсом. */
 function runBrain(
@@ -38,8 +57,9 @@ function runBrain(
 ): Run {
   const home = mkdtempSync(join(tmpdir(), "iva-brain-alerts-"));
   t.after(() => rmSync(home, { recursive: true, force: true }));
-  const vault = join(home, "vault with ' quote $ sign");
   const dataDir = join(home, "data");
+  const target = createJobTenant(dataDir);
+  const vault = target.vaultRoot;
   mkdirSync(join(vault, "cards"), { recursive: true });
   mkdirSync(dataDir, { recursive: true });
   writeFileSync(
@@ -51,21 +71,32 @@ function runBrain(
     "---\ntype: note\n---\n\n# Broken\n\nfacts\n\n```bash\nnever closed\n",
   );
   if (language !== null)
-    writeFileSync(join(dataDir, "settings.json"), JSON.stringify({ language }));
+    writeFileSync(
+      join(target.dataRoot, "settings.json"),
+      JSON.stringify({ language }),
+    );
 
-  const result = spawnSync(process.execPath, ["scripts/memory/brain.ts"], {
-    cwd: ROOT,
-    encoding: "utf8",
-    env: {
-      PATH: "", // ни uv, ни git, ни gh — наружу этот прогон не выйдет
-      HOME: home,
-      ASSISTANT_VAULT_DIR: vault,
-      ASSISTANT_DATA_DIR: dataDir,
-      ASSISTANT_TIMEZONE: "UTC",
-      AGENT_LANGUAGE: agentLanguage,
+  const result = spawnSync(
+    process.execPath,
+    ["scripts/memory/brain.ts", "--tenant-id", target.tenantId],
+    {
+      cwd: ROOT,
+      encoding: "utf8",
+      env: {
+        PATH: "", // ни uv, ни git, ни gh — наружу этот прогон не выйдет
+        HOME: home,
+        ASSISTANT_VAULT_DIR: vault,
+        ASSISTANT_DATA_DIR: dataDir,
+        ASSISTANT_TIMEZONE: "UTC",
+        AGENT_LANGUAGE: agentLanguage,
+      },
     },
-  });
-  return { code: result.status, stderr: result.stderr, dataDir };
+  );
+  return {
+    code: result.status,
+    stderr: result.stderr,
+    dataDir: target.dataRoot,
+  };
 }
 
 test("brain speaks Russian, says what broke and what to do", (t) => {
@@ -185,8 +216,9 @@ test("every brain alert goes through the throttle and carries both locales", () 
 test("Supersede skip report raises one actionable throttled Alert without Card data", (t) => {
   const home = mkdtempSync(join(tmpdir(), "iva-supersede-alert-"));
   t.after(() => rmSync(home, { recursive: true, force: true }));
-  const vault = join(home, "vault");
   const dataDir = join(home, "data");
+  const target = createJobTenant(dataDir);
+  const vault = target.vaultRoot;
   const bin = join(home, "bin");
   mkdirSync(join(vault, "cards"), { recursive: true });
   mkdirSync(dataDir, { recursive: true });
@@ -216,17 +248,21 @@ exit 0
   chmodSync(uv, 0o755);
 
   const run = () =>
-    spawnSync(process.execPath, ["scripts/memory/brain.ts"], {
-      cwd: ROOT,
-      encoding: "utf8",
-      env: {
-        PATH: bin,
-        ASSISTANT_VAULT_DIR: vault,
-        ASSISTANT_DATA_DIR: dataDir,
-        ASSISTANT_TIMEZONE: "UTC",
-        AGENT_LANGUAGE: "en",
+    spawnSync(
+      process.execPath,
+      ["scripts/memory/brain.ts", "--tenant-id", target.tenantId],
+      {
+        cwd: ROOT,
+        encoding: "utf8",
+        env: {
+          PATH: bin,
+          ASSISTANT_VAULT_DIR: vault,
+          ASSISTANT_DATA_DIR: dataDir,
+          ASSISTANT_TIMEZONE: "UTC",
+          AGENT_LANGUAGE: "en",
+        },
       },
-    });
+    );
 
   const first = run();
   assert.equal(first.status, 1);
@@ -271,7 +307,7 @@ exit 0
     .update(JSON.stringify(skipped))
     .digest("hex");
   writeFileSync(
-    join(dataDir, "alert-state.json"),
+    join(target.dataRoot, "alert-state.json"),
     JSON.stringify({
       "supersede-unreadable": { essence, lastSentAt: Date.now() },
     }),
@@ -309,6 +345,7 @@ function runBrainWithoutTree(
   const island = join(home, "island");
   mkdirSync(join(island, "scripts/memory"), { recursive: true });
   mkdirSync(join(island, "scripts/lib"), { recursive: true });
+  mkdirSync(join(island, "agent/lib"), { recursive: true });
   mkdirSync(join(island, "packages/data-dir"), { recursive: true });
   mkdirSync(join(island, "packages/timezone"), { recursive: true });
   writeFileSync(
@@ -341,9 +378,21 @@ function runBrainWithoutTree(
       join(ROOT, "packages/timezone", name),
       join(island, "packages/timezone", name),
     );
+  for (const name of [
+    "data-dir.ts",
+    "tenant-context.ts",
+    "tenant-job-target.ts",
+    "tenant-registry.ts",
+    "tenant-service-grant.ts",
+  ])
+    copyFileSync(
+      join(ROOT, "agent/lib", name),
+      join(island, "agent/lib", name),
+    );
 
-  const vault = join(home, "vault");
   const dataDir = join(home, "data");
+  const target = createJobTenant(dataDir);
+  const vault = target.vaultRoot;
   mkdirSync(join(vault, "cards"), { recursive: true });
   mkdirSync(dataDir, { recursive: true });
   writeFileSync(join(vault, "CORE.md"), "x".repeat(CORE_CAP * 2));
@@ -387,20 +436,27 @@ function runBrainWithoutTree(
       essence: "corrupt",
       lastSentAt: options.corruptAlertLastSentAt,
     };
-  writeFileSync(join(dataDir, "alert-state.json"), JSON.stringify(alertState));
+  writeFileSync(
+    join(target.dataRoot, "alert-state.json"),
+    JSON.stringify(alertState),
+  );
 
-  const result = spawnSync(process.execPath, ["scripts/memory/brain.ts"], {
-    cwd: island,
-    encoding: "utf8",
-    env: {
-      PATH: "",
-      HOME: home,
-      ASSISTANT_VAULT_DIR: vault,
-      ASSISTANT_DATA_DIR: dataDir,
-      ASSISTANT_TIMEZONE: "UTC",
-      AGENT_LANGUAGE: "ru",
+  const result = spawnSync(
+    process.execPath,
+    ["scripts/memory/brain.ts", "--tenant-id", target.tenantId],
+    {
+      cwd: island,
+      encoding: "utf8",
+      env: {
+        PATH: "",
+        HOME: home,
+        ASSISTANT_VAULT_DIR: vault,
+        ASSISTANT_DATA_DIR: dataDir,
+        ASSISTANT_TIMEZONE: "UTC",
+        AGENT_LANGUAGE: "ru",
+      },
     },
-  });
+  );
   const healthPath = join(vault, ".graph/health-history.json");
   return {
     code: result.status,
@@ -408,7 +464,7 @@ function runBrainWithoutTree(
     stderr: result.stderr,
     healthBytes: existsSync(healthPath) ? readFileSync(healthPath) : undefined,
     state: JSON.parse(
-      readFileSync(join(dataDir, "alert-state.json"), "utf8"),
+      readFileSync(join(target.dataRoot, "alert-state.json"), "utf8"),
     ) as Record<string, { essence?: string; lastSentAt?: number }>,
   };
 }
@@ -500,8 +556,9 @@ test("a valid health history clears the corrupt-history throttle", (t) => {
 test("a real corrupt Graph failure produces only its specific alert", (t) => {
   const home = mkdtempSync(join(tmpdir(), "iva-brain-real-graph-"));
   t.after(() => rmSync(home, { recursive: true, force: true }));
-  const vault = join(home, "vault");
   const dataDir = join(home, "data");
+  const target = createJobTenant(dataDir);
+  const vault = target.vaultRoot;
   const bin = join(home, "bin");
   const historyPath = join(vault, ".graph/health-history.json");
   const raw = Buffer.from('[{"date":"2026-08-15"', "utf8");
@@ -510,28 +567,31 @@ test("a real corrupt Graph failure produces only its specific alert", (t) => {
   mkdirSync(bin, { recursive: true });
   writeFileSync(historyPath, raw);
   const uv = "/opt/homebrew/bin/uv";
-  assert.equal(
-    existsSync(uv),
-    true,
-    "the supported test environment provides uv",
-  );
+  if (!existsSync(uv)) {
+    t.skip("the real-Graph fixture requires /opt/homebrew/bin/uv");
+    return;
+  }
   symlinkSync(uv, join(bin, "uv"));
 
-  const result = spawnSync(process.execPath, ["scripts/memory/brain.ts"], {
-    cwd: ROOT,
-    encoding: "utf8",
-    timeout: 60_000,
-    env: {
-      PATH: bin,
-      HOME: home,
-      TMPDIR: tmpdir(),
-      UV_CACHE_DIR: join(home, "uv-cache"),
-      ASSISTANT_VAULT_DIR: vault,
-      ASSISTANT_DATA_DIR: dataDir,
-      ASSISTANT_TIMEZONE: "UTC",
-      AGENT_LANGUAGE: "ru",
+  const result = spawnSync(
+    process.execPath,
+    ["scripts/memory/brain.ts", "--tenant-id", target.tenantId],
+    {
+      cwd: ROOT,
+      encoding: "utf8",
+      timeout: 60_000,
+      env: {
+        PATH: bin,
+        HOME: home,
+        TMPDIR: tmpdir(),
+        UV_CACHE_DIR: join(home, "uv-cache"),
+        ASSISTANT_VAULT_DIR: vault,
+        ASSISTANT_DATA_DIR: dataDir,
+        ASSISTANT_TIMEZONE: "UTC",
+        AGENT_LANGUAGE: "ru",
+      },
     },
-  });
+  );
 
   assert.equal(result.status, 1);
   assert.match(

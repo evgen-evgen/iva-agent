@@ -9,9 +9,10 @@ import {
   mergeCard,
   resolveCard,
   resolveOperation,
-} from "../lib/card-store.js";
-import { parseFrontmatter } from "../lib/frontmatter.js";
-import { resolveTimeZone } from "../lib/timezone.js";
+} from "../lib/card-store.ts";
+import { parseFrontmatter } from "../lib/frontmatter.ts";
+import { resolveTimeZone } from "../lib/timezone.ts";
+import { tenantContextFromSession } from "../lib/tenant-session.ts";
 
 // Строго типизированная запись карточки памяти. Заменяет «write_file по наитию» для карточек:
 // zod-enum на type/status берётся из autograph schema.json (единый источник правды), поэтому
@@ -95,10 +96,10 @@ function asStringRecord(value: unknown): Record<string, string> | null {
 }
 
 // Схема vault'а: корень vault'а → легаси `.claude`-путь (vault'ы до 0.3.3) → дефолт из репо.
-function schemaPath(): string {
+function schemaPath(vault = VAULT()): string {
   const candidates = [
-    join(VAULT(), "schema.json"),
-    join(VAULT(), ".claude", "skills", "autograph", "schema.json"),
+    join(vault, "schema.json"),
+    join(vault, ".claude", "skills", "autograph", "schema.json"),
     join("scripts", "autograph", "schema.example.json"),
   ];
   return candidates.find((p) => existsSync(p)) ?? candidates[0];
@@ -106,7 +107,7 @@ function schemaPath(): string {
 
 // Читаем схему на старте: валидные статусы per-type + алиасы. Fallback — зашитый минимум,
 // чтобы тул не падал, если vault ещё не инициализирован.
-function loadSchema(): {
+function loadSchema(vault = VAULT()): {
   status: Record<string, string[]>;
   aliases: Record<string, string>;
 } {
@@ -129,7 +130,7 @@ function loadSchema(): {
     },
   };
   try {
-    const raw = readFileSync(schemaPath(), "utf8");
+    const raw = readFileSync(schemaPath(vault), "utf8");
     const parsed: unknown = JSON.parse(raw);
     if (!isRecord(parsed)) return fallback;
     const nodeTypes = isRecord(parsed.node_types)
@@ -253,7 +254,10 @@ export default defineTool({
       ),
   }),
   // eslint-disable-next-line @typescript-eslint/require-await -- Preserve the established Promise-returning Eve tool contract.
-  async execute(input) {
+  async execute(input, ctx) {
+    const vault =
+      ctx === undefined ? VAULT() : tenantContextFromSession(ctx).vaultRoot;
+    const schema = loadSchema(vault);
     const {
       operation,
       type,
@@ -273,7 +277,7 @@ export default defineTool({
     const tags = normalizeTags(input.tags);
 
     // Валидация статуса против схемы типа (жёстко — иначе модель придумает статус).
-    const allowed = SCHEMA.status[type] || ["active"];
+    const allowed = schema.status[type] || ["active"];
     if (status && !allowed.includes(status)) {
       return {
         ok: false,
@@ -281,13 +285,13 @@ export default defineTool({
       };
     }
 
-    const dir = join(VAULT(), "cards", CARD_TYPE_DIR[type]);
+    const dir = join(vault, "cards", CARD_TYPE_DIR[type]);
     // Идентичность: точный слаг → иначе карточка того же типа с таким же H1/name/aliases
     // (легаси-файлы с латинским слагом и кириллическим заголовком).
     const id = resolveCard(dir, title);
     if (id.candidates && id.candidates.length > 1) {
       const list = id.candidates.map((f) =>
-        relative(VAULT(), f).split(sep).join("/"),
+        relative(vault, f).split(sep).join("/"),
       );
       return {
         ok: false,
@@ -298,7 +302,7 @@ export default defineTool({
       };
     }
     const file = id.file;
-    const rel = relative(VAULT(), file).split(sep).join("/");
+    const rel = relative(vault, file).split(sep).join("/");
 
     // Пробельная пустота history_entry (value.trim() === "") ничего не вытесняет и не
     // подделывает History: для UPDATE и NOOP она равна отсутствующему полю — так же, как

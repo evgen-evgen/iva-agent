@@ -272,12 +272,12 @@ test("the broken-tree walk covers every node unit deploy/ starts", () => {
   // an exemption for a unit that no longer exists cannot sit here unnoticed.
   assert.deepEqual(unitNodeEntrypoints(), [
     "scripts/check-update.mjs",
-    "scripts/memory/brain.ts",
+    "scripts/memory/tenants.ts",
     "scripts/telegram-poll.mjs",
   ]);
   assert.deepEqual(brokenTreeUnitEntrypoints(), [
     "scripts/check-update.mjs",
-    "scripts/memory/brain.ts",
+    "scripts/memory/tenants.ts",
   ]);
 });
 

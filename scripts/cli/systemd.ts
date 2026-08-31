@@ -267,7 +267,7 @@ export function createCliSystemd(runtime: CliRuntime) {
   // the same .memory.lock), a missing one costs the user a night of memory care.
   // The kept-unit half of the same guarantee. The legacy pair was written by an install made
   // before the rename, so its ExecStart names scripts/memory/doctor.ts — a file THIS tree no
-  // longer ships (it is scripts/memory/brain.ts now), and writeUnits() runs on the already
+  // longer ships (tenant dispatch owns the nightly brain now), and writeUnits() runs on the already
   // updated tree (update.ts calls it from postCommit). So every path that keeps the old unit
   // as the safety net would otherwise keep a unit that fails at 05:00 with "Cannot find
   // module" — the lost night the ordering above exists to prevent. Repoint it in place, by
@@ -288,12 +288,12 @@ export function createCliSystemd(runtime: CliRuntime) {
       try {
         writeFileSync(
           path,
-          body.replaceAll(LEGACY_BRAIN_ENTRYPOINT, BRAIN_ENTRYPOINT),
+          body.replaceAll(LEGACY_BRAIN_ENTRYPOINT, `${BRAIN_ENTRYPOINT} brain`),
         );
         repointed.push(unit);
       } catch (error) {
         warn(
-          `could not repoint ${unit} at ${BRAIN_ENTRYPOINT}: ${(error as { message: string }).message}`,
+          `could not repoint ${unit} at ${BRAIN_ENTRYPOINT} brain: ${(error as { message: string }).message}`,
         );
       }
     }
@@ -315,7 +315,7 @@ export function createCliSystemd(runtime: CliRuntime) {
     const keeping = (): void => {
       if (repointed.length)
         ok(
-          `kept ${repointed.join(", ")} — repointed at ${BRAIN_ENTRYPOINT}, so tonight's vault care still runs`,
+          `kept ${repointed.join(", ")} — repointed at ${BRAIN_ENTRYPOINT} brain, so tonight's vault care still runs`,
         );
     };
     const missing = [BRAIN_SERVICE, BRAIN_TIMER].filter(

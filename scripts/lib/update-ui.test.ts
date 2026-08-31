@@ -686,9 +686,9 @@ test("a refused phase edit is reported and the update carries on", async (t) => 
 test("update callback is acknowledged before any message edit", async () => {
   const previousFetch = mutableGlobal.fetch;
   const previousToken = process.env.TELEGRAM_BOT_TOKEN;
-  const previousAllowed = process.env.TELEGRAM_ALLOWED_USER_IDS;
+  const previousAllowed = process.env.TELEGRAM_OWNER_USER_IDS;
   process.env.TELEGRAM_BOT_TOKEN = "token";
-  process.env.TELEGRAM_ALLOWED_USER_IDS = "42";
+  process.env.TELEGRAM_OWNER_USER_IDS = "42";
   const calls: string[] = [];
   mutableGlobal.fetch = async (url) => {
     calls.push(url.split("/").at(-1) ?? "");
@@ -728,8 +728,8 @@ test("update callback is acknowledged before any message edit", async () => {
     if (previousToken === undefined) delete process.env.TELEGRAM_BOT_TOKEN;
     else process.env.TELEGRAM_BOT_TOKEN = previousToken;
     if (previousAllowed === undefined)
-      delete process.env.TELEGRAM_ALLOWED_USER_IDS;
-    else process.env.TELEGRAM_ALLOWED_USER_IDS = previousAllowed;
+      delete process.env.TELEGRAM_OWNER_USER_IDS;
+    else process.env.TELEGRAM_OWNER_USER_IDS = previousAllowed;
   }
 });
 
@@ -738,13 +738,13 @@ test("up-to-date check shows the model from fresh .env, not this process's snaps
   const previousEnv = Object.fromEntries(
     [
       "TELEGRAM_BOT_TOKEN",
-      "TELEGRAM_ALLOWED_USER_IDS",
+      "TELEGRAM_OWNER_USER_IDS",
       "MODEL_PROVIDER",
       "OPENCODE_MODEL",
     ].map((k) => [k, process.env[k]]),
   );
   process.env.TELEGRAM_BOT_TOKEN = "token";
-  process.env.TELEGRAM_ALLOWED_USER_IDS = "42";
+  process.env.TELEGRAM_OWNER_USER_IDS = "42";
   // The bridge's snapshot is stale: the /model wizard rewrote .env after this process started.
   process.env.MODEL_PROVIDER = "opencode";
   process.env.OPENCODE_MODEL = "stale-model";
@@ -783,9 +783,9 @@ test("up-to-date check shows the model from fresh .env, not this process's snaps
 test("manual update offer keeps commit-based behavior and marks a stable release as shown", async () => {
   const previousFetch = mutableGlobal.fetch;
   const previousToken = process.env.TELEGRAM_BOT_TOKEN;
-  const previousAllowed = process.env.TELEGRAM_ALLOWED_USER_IDS;
+  const previousAllowed = process.env.TELEGRAM_OWNER_USER_IDS;
   process.env.TELEGRAM_BOT_TOKEN = "token";
-  process.env.TELEGRAM_ALLOWED_USER_IDS = "42";
+  process.env.TELEGRAM_OWNER_USER_IDS = "42";
   const calls: TelegramCall[] = [];
   mutableGlobal.fetch = async (url, init) => {
     const method = url.split("/").at(-1);
@@ -825,8 +825,8 @@ test("manual update offer keeps commit-based behavior and marks a stable release
     if (previousToken === undefined) delete process.env.TELEGRAM_BOT_TOKEN;
     else process.env.TELEGRAM_BOT_TOKEN = previousToken;
     if (previousAllowed === undefined)
-      delete process.env.TELEGRAM_ALLOWED_USER_IDS;
-    else process.env.TELEGRAM_ALLOWED_USER_IDS = previousAllowed;
+      delete process.env.TELEGRAM_OWNER_USER_IDS;
+    else process.env.TELEGRAM_OWNER_USER_IDS = previousAllowed;
   }
 });
 

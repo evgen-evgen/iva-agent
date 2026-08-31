@@ -83,7 +83,7 @@ export function createRemindCommand(
     const chat = notificationChat(env);
     if (!chat)
       throw new Error(
-        "No target chat — set TELEGRAM_DIGEST_CHAT_ID or TELEGRAM_ALLOWED_USER_IDS in .env",
+        "No target chat — set TELEGRAM_DIGEST_CHAT_ID or TELEGRAM_OWNER_USER_IDS in .env",
       );
 
     let turn: ReminderTurn | undefined;

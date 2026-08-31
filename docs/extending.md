@@ -29,7 +29,7 @@ with a `SKILL.md` plus supporting files. Iva loads both your custom skills and t
 - 📮 **google-workspace.md** — one CLI surface covering Gmail, Calendar, Drive, Sheets, Docs and Tasks.
 - 📄 **documents.md** — local PDF, DOCX and XLSX extraction, one-file answers and optional library import.
 - 📡 **telegram-userbot/** — a guarded personal-account workflow with a separate safety reference.
-- 🎨 **rich-post/** — rich Telegram posts to another allowlisted chat; the sending is the `iva post` command, not a bundled script.
+- 🎨 **rich-post/** — rich Telegram posts to the configured owner/digest chat; the sending is the `iva post` command, not a bundled script.
 - 🩹 **update-recovery/** — merges customizations an update left in `data/update-conflicts/`; triggered by "restore my update changes".
 
 A new skill needs no build: Iva reads `data/custom/agent/skills/` at the start of every turn, so a file

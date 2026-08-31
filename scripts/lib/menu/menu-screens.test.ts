@@ -6,11 +6,15 @@ import {
   mkdtempSync,
   writeFileSync,
   readFileSync,
+  rmSync,
   existsSync,
   statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { TenantRegistry } from "#lib/tenant-registry.ts";
+import { reconcileTelegramTenants } from "#lib/telegram-tenant-provisioning.ts";
+import { resolveTelegramTenantForUserId } from "#lib/telegram-tenant-resolver.ts";
 
 import character from "./character.ts";
 import search from "./search.ts";
@@ -149,9 +153,29 @@ const newState = (over: Partial<MenuState> = {}): MenuState => ({
 });
 
 // ── 1. character: полный проход 10 ответов через scoreQuiz + apply пишет PERSONA.md ─────
-test("character: 10 ответов скорятся через scoreQuiz, apply пишет PERSONA.md", async () => {
-  const vault = mkdtempSync(join(tmpdir(), "iva-vault-"));
-  process.env.ASSISTANT_VAULT_DIR = vault;
+test("character: 10 ответов скорятся через scoreQuiz, apply пишет PERSONA.md", async (t) => {
+  const data = mkdtempSync(join(tmpdir(), "iva-character-tenant-"));
+  const previousData = process.env.ASSISTANT_DATA_DIR;
+  const previousAllowed = process.env.TELEGRAM_ALLOWED_USER_IDS;
+  const previousOwners = process.env.TELEGRAM_OWNER_USER_IDS;
+  process.env.ASSISTANT_DATA_DIR = data;
+  process.env.TELEGRAM_ALLOWED_USER_IDS = "20";
+  process.env.TELEGRAM_OWNER_USER_IDS = "20";
+  const registry = new TenantRegistry(join(data, "tenants.sqlite"));
+  reconcileTelegramTenants(registry);
+  registry.close();
+  const vault = resolveTelegramTenantForUserId("20").vaultRoot;
+  t.after(() => {
+    if (previousData === undefined) delete process.env.ASSISTANT_DATA_DIR;
+    else process.env.ASSISTANT_DATA_DIR = previousData;
+    if (previousAllowed === undefined)
+      delete process.env.TELEGRAM_ALLOWED_USER_IDS;
+    else process.env.TELEGRAM_ALLOWED_USER_IDS = previousAllowed;
+    if (previousOwners === undefined)
+      delete process.env.TELEGRAM_OWNER_USER_IDS;
+    else process.env.TELEGRAM_OWNER_USER_IDS = previousOwners;
+    rmSync(data, { recursive: true, force: true });
+  });
   const h = makeCtx({ lang: "ru", screens: { chr: characterScreen } });
   const st = newState({ screen: "chr" });
   h.st = st;

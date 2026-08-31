@@ -24,8 +24,10 @@ import {
   hasEmbeddingKey,
 } from "../../agent/lib/embeddings.ts";
 import { embedText } from "../../agent/lib/card-index.ts";
+import { resolveTenantJobTarget } from "../../agent/lib/tenant-job-target.ts";
 
-const VAULT = process.env.ASSISTANT_VAULT_DIR || "vault";
+const TARGET = resolveTenantJobTarget(process.argv.slice(2));
+const VAULT = TARGET.context.vaultRoot;
 const SCOPE = ["cards", "summaries", "weekly", "monthly", "yearly"];
 const IGNORE = new Set([
   ".git",

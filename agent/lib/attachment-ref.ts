@@ -19,6 +19,41 @@ const IMAGE_MEDIA_TYPES = {
 
 type ImageExtension = keyof typeof IMAGE_MEDIA_TYPES;
 
+const ATTACHMENT_REF = /attachment:(att_[0-9a-f]{32})/gu;
+
+export function attachmentReference(id: string): string {
+  if (!/^att_[0-9a-f]{32}$/u.test(id))
+    throw new Error("Invalid attachment reference");
+  return `attachment:${id}`;
+}
+
+/** Opaque attachment IDs mentioned in model text, ordered and deduplicated. */
+export function attachmentRefsIn(text: string): string[] {
+  if (typeof text !== "string" || text.length === 0) return [];
+  const refs: string[] = [];
+  for (const match of text.matchAll(ATTACHMENT_REF)) {
+    const id = match[1];
+    if (!refs.includes(id)) refs.push(id);
+  }
+  return refs;
+}
+
+export function attachmentImageMediaType(
+  mediaType: string | null | undefined,
+  originalName: string | null | undefined,
+): string | undefined {
+  if (
+    mediaType !== undefined &&
+    mediaType !== null &&
+    Object.values(IMAGE_MEDIA_TYPES).includes(
+      mediaType as (typeof IMAGE_MEDIA_TYPES)[ImageExtension],
+    )
+  ) {
+    return mediaType;
+  }
+  return originalName ? imageMediaType(originalName) : undefined;
+}
+
 // Хвост пути обязан кончиться: `photo.jpg.txt` — текстовый файл, а не картинка, поэтому
 // после суффикса имени файла не должно быть ни продолжения имени, ни второго суффикса.
 // Точка в конце предложения (`…photo.jpg.`) под это правило не подпадает — за ней не буква.

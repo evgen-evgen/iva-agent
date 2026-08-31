@@ -47,13 +47,16 @@ void test("appending creates the data directory and keeps one record per line", 
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const dataDir = join(root, "data");
 
-  appendUsage(record({ step: 0 }), dataDir);
+  appendUsage(record({ step: 0, tenantId: `t_${"a".repeat(32)}` }), dataDir);
   appendUsage(record({ step: 1, subagent: "planner" }), dataDir);
 
   const lines = readFileSync(usageFilePath(dataDir), "utf8").split("\n");
   assert.equal(lines.length, 3); // две записи и завершающий перевод строки
   assert.equal(lines[2], "");
-  assert.deepEqual(JSON.parse(lines[0]), record({ step: 0 }));
+  assert.deepEqual(
+    JSON.parse(lines[0]),
+    record({ step: 0, tenantId: `t_${"a".repeat(32)}` }),
+  );
   assert.deepEqual(
     JSON.parse(lines[1]),
     record({ step: 1, subagent: "planner" }),

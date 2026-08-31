@@ -20,7 +20,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolContext } from "eve/tools";
 import { quarantineDir } from "./lib/wf-store.ts";
-import { settled } from "./fixtures/tool-result.ts";
+import { resolveTelegramTenantForUserId } from "../agent/lib/telegram-tenant-resolver.ts";
 
 // TS — только динамическим импортом: resolve-хук (.js→.ts) не действует на статические
 // импорты, слинкованные до его регистрации.
@@ -32,7 +32,10 @@ const {
 const { acquireLock: jsonLock, releaseLock: jsonRelease } =
   await import("../agent/lib/json-store.ts");
 
-function testToolContext(toolName: string): ToolContext {
+function testToolContext(
+  toolName: string,
+  principal: ToolContext["session"]["auth"]["current"] = null,
+): ToolContext {
   const unavailable = (): never => {
     throw new Error("not used by this test");
   };
@@ -42,7 +45,7 @@ function testToolContext(toolName: string): ToolContext {
     toolName,
     session: {
       id: "review-fixes",
-      auth: { current: null, initiator: null },
+      auth: { current: principal, initiator: principal },
       turn: { id: "review-fixes", sequence: 0 },
     },
     getSandbox: () => Promise.reject(new Error("not used by this test")),
@@ -137,23 +140,36 @@ test("карантин закрывает права старого world-readab
 });
 
 test("write_file: симлинк-алиас на cards/ не обходит гард перезаписи", async () => {
-  const vault = mkdtempSync(join(tmpdir(), "vault-"));
+  const dataDir = mkdtempSync(join(tmpdir(), "write-file-tenant-"));
+  process.env.ASSISTANT_DATA_DIR = dataDir;
+  process.env.TELEGRAM_ALLOWED_USER_IDS = "91";
+  process.env.TELEGRAM_OWNER_USER_IDS = "91";
+  const tenant = resolveTelegramTenantForUserId("91");
+  const vault = tenant.vaultRoot;
   const cards = join(vault, "cards", "contacts");
   mkdirSync(cards, { recursive: true });
   writeFileSync(join(cards, "ivan.md"), "ORIGINAL CARD");
   symlinkSync(join(vault, "cards"), join(vault, "card-alias"));
   process.env.ASSISTANT_VAULT_DIR = vault;
+  const principal = {
+    attributes: { tenant_id: tenant.tenantId },
+    authenticator: "telegram-bot",
+    issuer: "telegram",
+    principalId: "telegram:91",
+    principalType: "user" as const,
+  };
   const { default: writeFile } = await import("../agent/tools/write_file.ts");
-  const res = settled(
-    await writeFile.execute(
+  await assert.rejects(
+    async () =>
+      await writeFile.execute(
       {
-        path: join(vault, "card-alias", "contacts", "ivan.md"),
+        path: "card-alias/contacts/ivan.md",
         content: "OVERWRITTEN",
       },
-      testToolContext("write_file"),
-    ),
+      testToolContext("write_file", principal),
+      ),
+    /outside the tenant storage boundary/u,
   );
-  assert.equal(res.ok, false, JSON.stringify(res));
   assert.equal(
     readFileSync(join(cards, "ivan.md"), "utf8"),
     "ORIGINAL CARD",

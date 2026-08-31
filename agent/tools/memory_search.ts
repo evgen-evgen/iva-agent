@@ -5,8 +5,9 @@ import { readFileSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join, relative, resolve, sep } from "node:path";
 import { createRequire } from "node:module";
-import { embedTexts, cosine, hasEmbeddingKey } from "../lib/embeddings.js";
-import { cardIndex, cardTitle } from "../lib/card-index.js";
+import { embedTexts, cosine, hasEmbeddingKey } from "../lib/embeddings.ts";
+import { cardIndex, cardTitle } from "../lib/card-index.ts";
+import { tenantContextFromSession } from "../lib/tenant-session.ts";
 
 // node:sqlite — встроенный модуль (Node 24+). В ESM нет глобального require, поэтому
 // поднимаем его через createRequire; грузим лениво внутри bm25Search (с fallback, если нет).
@@ -86,8 +87,10 @@ export interface LoadedDocs {
   signature: string;
 }
 
-export async function loadDocs(scopeDirs: string[]): Promise<LoadedDocs> {
-  const vault = VAULT();
+export async function loadDocs(
+  scopeDirs: string[],
+  vault = VAULT(),
+): Promise<LoadedDocs> {
   // scope приходит в тул свободными строками — их пишет МОДЕЛЬ, а её может завести
   // содержимое чужого сообщения. join(vault, "../..") уводил обход за пределы vault:
   // поиск читал бы .env, ключи и чужие репозитории, а куски их строк уезжали бы модели
@@ -223,10 +226,8 @@ function isVectorIndex(value: unknown): value is Record<string, number[]> {
 }
 
 // Читаем ночной adjacency-граф (autograph graph.py). ASSISTANT_GRAPH_PATH — override для тестов.
-function loadGraph(): GraphNodes {
-  const path =
-    process.env.ASSISTANT_GRAPH_PATH ||
-    join(VAULT(), ".graph", "vault-graph.json");
+function loadGraph(vault: string): GraphNodes {
+  const path = join(vault, ".graph", "vault-graph.json");
   try {
     const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
     if (!isRecord(parsed)) return {};
@@ -271,12 +272,9 @@ function bfsDistances(
 // --- Плагин: dense-слой + RRF (только MEMORY_SEARCH_MODE=hybrid) --------------------------
 
 // Персистентный индекс эмбеддингов (сайдкар vault/.index/embeddings.json), строит embed-index.ts.
-function loadEmbedIndex(): Record<string, number[]> | null {
+function loadEmbedIndex(vault: string): Record<string, number[]> | null {
   try {
-    const raw = readFileSync(
-      join(VAULT(), ".index", "embeddings.json"),
-      "utf8",
-    );
+    const raw = readFileSync(join(vault, ".index", "embeddings.json"), "utf8");
     const parsed: unknown = JSON.parse(raw);
     if (!isRecord(parsed)) return null;
     return isVectorIndex(parsed.vectors) ? parsed.vectors : null;
@@ -290,8 +288,9 @@ async function denseRanked(
   query: string,
   docs: Doc[],
   limit: number,
+  vault: string,
 ): Promise<string[] | null> {
-  const index = loadEmbedIndex();
+  const index = loadEmbedIndex(vault);
   if (!index) return null;
   const [qvec] = await embedTexts([query]);
   if (!qvec) return null;
@@ -351,16 +350,20 @@ interface Hit {
 // Плата — резидентная память: на вольте в 2000 карточек (≈8 МБ) кэш карточек вместе с
 // индексом держат порядка 40 МБ. Раньше столько же выделялось и освобождалось на КАЖДЫЙ
 // запрос; теперь память занята постоянно, но её порядок тот же.
-let indexCache: {
-  signature: string;
-  db: import("node:sqlite").DatabaseSync;
-} | null = null;
+const indexCaches = new Map<
+  string,
+  {
+    signature: string;
+    db: import("node:sqlite").DatabaseSync;
+  }
+>();
 
 function ftsIndex(
   docs: Doc[],
   signature: string,
 ): import("node:sqlite").DatabaseSync {
-  if (indexCache && indexCache.signature === signature) return indexCache.db;
+  const cached = indexCaches.get(signature);
+  if (cached) return cached.db;
   // node:sqlite встроен в Node 24+, грузится без флага (проверено). createRequire — т.к. ESM.
   const { DatabaseSync } = nodeRequire(
     "node:sqlite",
@@ -382,8 +385,7 @@ function ftsIndex(
     throw error;
   }
   cacheStats.indexBuilds++;
-  indexCache?.db.close();
-  indexCache = { signature, db };
+  indexCaches.set(signature, { signature, db });
   return db;
 }
 
@@ -431,20 +433,29 @@ function naiveSearch(docs: Doc[], tokens: string[]): string[] {
   return scored.map((x) => x.path);
 }
 
-export async function searchMemory({
-  query,
-  limit,
-  scope,
-}: {
-  query: string;
-  limit?: number;
-  scope?: string[];
-}): Promise<{ count: number; engine?: string; hits: Hit[]; note?: string }> {
+export async function searchMemory(
+  {
+    query,
+    limit,
+    scope,
+  }: {
+    query: string;
+    limit?: number;
+    scope?: string[];
+  },
+  vault = VAULT(),
+): Promise<{
+  count: number;
+  engine?: string;
+  hits: Hit[];
+  note?: string;
+}> {
   {
     const topN = limit ?? 12;
     const tokens = contentTokens(query);
     const { docs, signature } = await loadDocs(
       scope && scope.length ? scope : DEFAULT_DIRS,
+      vault,
     );
     if (docs.length === 0)
       return { count: 0, hits: [] as Hit[], note: "vault пуст или недоступен" };
@@ -468,7 +479,7 @@ export async function searchMemory({
     // ключа/индекса. Любой сбой (нет ключа/индекса, сеть) → тихо остаёмся на чистом BM25.
     if (process.env.MEMORY_SEARCH_MODE === "hybrid" && hasEmbeddingKey()) {
       try {
-        const dense = await denseRanked(query, docs, topN * 4);
+        const dense = await denseRanked(query, docs, topN * 4, vault);
         if (dense && dense.length) {
           ranked = rrfFuse([ranked, dense], topN * 4);
           engine = "hybrid-rrf";
@@ -485,7 +496,7 @@ export async function searchMemory({
     ranked.forEach((path, i) => baseScore.set(path, 1 / (K + i)));
 
     // Link-distance реранк: якоря = топ-3 BM25-хита; BFS даёт близость каждой карточки к теме.
-    const graph = loadGraph();
+    const graph = loadGraph(vault);
     const anchors = ranked.slice(0, 3).map((p) => p.replace(/\.md$/, ""));
     const dist = bfsDistances(graph, anchors, 2);
 
@@ -592,5 +603,9 @@ export default defineTool({
         "Поддиректории vault для поиска (по умолчанию cards+summaries+weekly/monthly/yearly)",
       ),
   }),
-  execute: searchMemory,
+  execute(input, ctx) {
+    const vault =
+      ctx === undefined ? VAULT() : tenantContextFromSession(ctx).vaultRoot;
+    return searchMemory(input, vault);
+  },
 });

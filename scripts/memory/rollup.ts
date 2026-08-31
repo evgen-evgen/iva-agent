@@ -26,9 +26,7 @@ import {
   memoryReportsEnabled,
   rollupRanBefore,
 } from "../lib/notice-policy.ts";
-import { resolveDataDir } from "../lib/data-dir.ts";
 import { resolveTimeZone } from "../lib/timezone.ts";
-import { notificationChat } from "../lib/notification-chat.ts";
 import { readCore } from "./read-core.ts";
 import {
   cancelTurnAndConfirmQuietly,
@@ -44,6 +42,10 @@ import {
   sentNotBeforeIso,
 } from "../lib/rollup-stale-cursor.ts";
 import { sendTelegramHtml } from "../lib/telegram-send.ts";
+import {
+  resolveTenantJobTarget,
+  tenantGrantHeaders,
+} from "../../agent/lib/tenant-job-target.ts";
 
 type Period = "daily" | "weekly" | "monthly" | "yearly";
 
@@ -56,15 +58,17 @@ if (!period || !PERIODS.includes(period)) {
   process.exit(1);
 }
 
+const TARGET = resolveTenantJobTarget(process.argv.slice(2));
+
 const PORT = process.env.IVA_PORT ?? "8723";
 const HOST = process.env.ASSISTANT_HOST ?? `http://127.0.0.1:${PORT}`;
 const BEARER = process.env.ASSISTANT_BEARER; // needed if the prod eve channel requires auth
 const BOT = process.env.TELEGRAM_BOT_TOKEN;
-const CHAT = notificationChat();
+const CHAT = TARGET.record.telegramDestination ?? "";
 // Absolute, like the instructions above: the prompt hands these paths to the model as
 // read_file/write_file targets, and read_file resolves a RELATIVE path against the vault
 // root — a "vault/daily/…" string would come back as vault/vault/daily/… and ENOENT.
-const VAULT = resolve(process.env.ASSISTANT_VAULT_DIR ?? "vault");
+const VAULT = TARGET.context.vaultRoot;
 const TZ = resolveTimeZone(process.env.ASSISTANT_TIMEZONE);
 // Format rules and the memory-processor prompts live in the repo, not in the vault: they
 // are product, and must update with it instead of rotting inside every user's vault.
@@ -193,6 +197,7 @@ function buildPrompt(p: Period, now: string): string {
 const client = new Client({
   host: HOST,
   ...(BEARER ? { auth: { bearer: () => Promise.resolve(BEARER) } } : {}),
+  headers: tenantGrantHeaders(TARGET, `memory-${period}`, BEARER),
 });
 
 // Session REUSE, not a fresh session per night. eve backs every client session with a
@@ -203,7 +208,7 @@ const client = new Client({
 // run in the store (nothing can close it), so per-night rotation would just re-create the
 // leak. Abandoned sessions are logged to data/rollup-abandoned.jsonl for the record;
 // `iva reset` clears them together with the store. Parked cursor lives in data/.
-const DATA_DIR = resolveDataDir(process.cwd());
+const DATA_DIR = TARGET.context.dataRoot;
 const SESSION_FILE = join(DATA_DIR, `rollup-session-${period}.json`);
 // 14 days, not 90. The session carries the whole history of previous rollups, and the
 // daily one reuses it every single night: at 90 days the nightly turn opened with ~three
@@ -569,7 +574,7 @@ console.log(`rollup ${period} (${today}):\n${result.message}`);
 // the report, or — once in the life of an installation that used to get it — the notice
 // that reports are now off. Never both, never twice.
 if (REPORTS_TO_TELEGRAM[period]) {
-  const settings = readSettings();
+  const settings = readSettings(join(DATA_DIR, "settings.json"));
   // markdown → Telegram-HTML conversion, chunking, the outbound Gate and the self-heal all
   // live in the shared seam. No token or chat means no seam — and the policy still decides
   // the one-time notice, so a chat configured later cannot revive a question already closed.

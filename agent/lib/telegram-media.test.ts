@@ -14,6 +14,8 @@ process.env.ASSISTANT_VAULT_DIR = join(root, "vault");
 process.env.ASSISTANT_TIMEZONE = "UTC";
 process.env.AGENT_LANGUAGE = "en";
 process.env.TELEGRAM_BOT_TOKEN = "1:test-token";
+const TENANT_DATA_ROOT = join(root, "tenant-a");
+const VAULT = join(TENANT_DATA_ROOT, "vault");
 const modulePath = fileURLToPath(
   new URL("./telegram-media.ts", import.meta.url),
 );
@@ -21,7 +23,8 @@ const media = (await import(
   pathToFileURL(modulePath).href
 )) as typeof import("./telegram-media.ts");
 const { noticeSender } = await import("./outbox.ts");
-const { imageRefsIn, MAX_IMAGE_BYTES } = await import("./attachment-ref.ts");
+const { attachmentRefsIn, MAX_IMAGE_BYTES } =
+  await import("./attachment-ref.ts");
 
 type Effects = Parameters<typeof media.processMediaPart>[0];
 type RawMedia = Parameters<typeof media.processMediaPart>[2];
@@ -31,6 +34,12 @@ type Calls = { sent: string[]; vision: number; transcribed: number };
 function harness(overrides: Partial<Effects> = {}) {
   const calls: Calls = { sent: [], vision: 0, transcribed: 0 };
   const effects: Effects = {
+    tenant: {
+      tenantId: "t_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      role: "owner",
+      dataRoot: TENANT_DATA_ROOT,
+      vaultRoot: VAULT,
+    },
     request: () =>
       Promise.resolve({ body: { result: { file_path: "photos/file.jpg" } } }),
     sendMessage: noticeSender((text) => {
@@ -307,7 +316,8 @@ await test("модель видит картинки: vision не зовём, в
   // «Приложено» не обещаем: после смены на слепую модель этот ход в истории врал бы.
   assert.doesNotMatch(part.context[0], /attached/u);
   assert.doesNotMatch(part.context[0], /What's in it/u);
-  assert.equal(imageRefsIn(part.context[0]).length, 1);
+  assert.equal(attachmentRefsIn(part.context[0]).length, 1);
+  assert.doesNotMatch(part.context[0], /\/attachments\/|iva-telegram-media/u);
 });
 
 // Медиа-группа: два фото одним сообщением. Каждое доезжает своей ссылкой, включая
@@ -330,8 +340,8 @@ await test("медиа-группа из двух фото даёт две ра�
   );
 
   const refs = [
-    ...imageRefsIn(first.context[0]),
-    ...imageRefsIn(second.context[0]),
+    ...attachmentRefsIn(first.context[0]),
+    ...attachmentRefsIn(second.context[0]),
   ];
   assert.equal(refs.length, 2);
   assert.notEqual(refs[0], refs[1]);
@@ -372,7 +382,7 @@ await test("heic-документ при зрячей модели описыв�
 
   assert.equal(calls.vision, 1);
   assert.match(part.context[0], /What's in it: a whiteboard with numbers/u);
-  assert.equal(imageRefsIn(part.context[0]).length, 0);
+  assert.equal(attachmentRefsIn(part.context[0]).length, 1);
 });
 
 await test("стикер без типа при зрячей модели идёт прежним путём", async (t) => {
@@ -447,6 +457,39 @@ await test("повтор той же картинки при зрячей мод
 
   assert.deepEqual(methods, [], "второй раз качать нечего");
   assert.equal(second.calls.vision, 0);
-  assert.deepEqual(imageRefsIn(two.context[0]), imageRefsIn(one.context[0]));
+  assert.deepEqual(
+    attachmentRefsIn(two.context[0]),
+    attachmentRefsIn(one.context[0]),
+  );
   assert.equal(two.context[0], one.context[0]);
+});
+
+await test("один Telegram file_unique_id имеет разные blobs у разных tenants", async (t) => {
+  stubDownload(t);
+  const same = photo();
+  const tenantBRoot = join(root, "tenant-b");
+  const tenantB = {
+    tenantId: "t_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    role: "user" as const,
+    dataRoot: tenantBRoot,
+    vaultRoot: join(tenantBRoot, "vault"),
+  };
+  const first = await media.processMediaPart(
+    harness({ chatModelSeesImages: () => Promise.resolve(true) }).effects,
+    { message_id: 18 },
+    same,
+  );
+  const second = await media.processMediaPart(
+    harness({
+      tenant: tenantB,
+      chatModelSeesImages: () => Promise.resolve(true),
+    }).effects,
+    { message_id: 19 },
+    same,
+  );
+  const firstId = attachmentRefsIn(first.context.join("\n"))[0];
+  const secondId = attachmentRefsIn(second.context.join("\n"))[0];
+  assert.match(firstId, /^att_[0-9a-f]{32}$/u);
+  assert.match(secondId, /^att_[0-9a-f]{32}$/u);
+  assert.notEqual(firstId, secondId);
 });

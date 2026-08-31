@@ -48,18 +48,18 @@ Matches become `[REDACTED]` and the reply still goes out, with the finding logge
 
 ## Access control
 
-Iva has two independent inbound paths, and both fail closed:
+Iva has two independent authenticated inbound paths:
 
-- **Telegram** - the webhook secret authenticates the bridge and `TELEGRAM_ALLOWED_USER_IDS` decides which people may start a turn.
+- **Telegram** - the webhook secret authenticates the bridge. Any real user in a private chat is registered as a separate ordinary tenant; `TELEGRAM_OWNER_USER_IDS` alone grants operational authority. Groups and channels do not enter personal memory.
 - **Eve HTTP** - the server binds to `127.0.0.1`, and session routes require `ASSISTANT_BEARER` (or Vercel OIDC). `localDev()` exists only under `eve dev`.
 
 The canonical Telegram rule is:
 
 ```bash
-TELEGRAM_ALLOWED_USER_IDS=123456789   # comma-separated; EMPTY = Iva answers nobody
+TELEGRAM_OWNER_USER_IDS=123456789     # the only Telegram ID with installation controls
 ```
 
-Not "everyone until configured" - nobody. A stranger who DMs the bot gets one line back with their own Telegram ID so they can ask you to add them (with an empty allowlist the reply just says the bot isn't configured yet); group messages from strangers - and everything else - are dropped before the model ever runs.
+A stranger who DMs the bot becomes an isolated ordinary tenant. They cannot use owner commands or owner-only tools, and their vault, tasks, attachments, settings and sessions are separate. This intentionally makes the bot public to private Telegram users; keep the bot username private if that is not desired. Group and channel messages are dropped before the model runs.
 
 The setup and upgrade paths generate `ASSISTANT_BEARER` automatically and keep `.env` at mode `0600`. Local scripts read the same value. Do not expose port 8723 directly; reverse proxies must keep the bearer requirement. Run `iva doctor` to repair an older unit or configuration.
 
@@ -74,7 +74,7 @@ A plugin extends Iva by running inside her, so installing one is a trust decisio
 ## Privacy
 
 - 🗄️ **Your vault, your repo** — memory lives in a separate private git repository you own; the nightly Brain pass commits and pushes it ([memory.md](memory.md)).
-- 🔐 **Keys in `.env`** - credentials stay on your box in a `0600` file and are never pasted into a prompt by Iva itself. The one exception is userbot onboarding, where you type `api_id`, `api_hash` and a 2FA password into the chat: those do reach the model and the daily log, see [userbot.md](userbot.md). They do sit in the service's environment, and the agent's shell inherits it: a hijacked turn can read them. The allowlist and the inbound gate are what keep that turn from happening.
+- 🔐 **Keys in `.env`** - credentials stay on your box in a `0600` file and are never pasted into a prompt by Iva itself. The one exception is userbot onboarding, where you type `api_id`, `api_hash` and a 2FA password into the chat: those reach the model and daily log, see [userbot.md](userbot.md). Ordinary tenants cannot use shell or owner integrations; the inbound gate remains defense against prompt injection.
 - ☁️ **Honest boundary** — the model and the voice transcription are cloud APIs you chose and pay for yourself. Self-hosted means your code and your memory, not the model weights.
 
 ## What this defends against — and what it doesn't

@@ -1175,7 +1175,7 @@ elif prompt_yes_no "$(t "Set up autostart via systemd (service + watchdog timers
   _bot="$(grep -E '^TELEGRAM_BOT_TOKEN=' .env | head -n1 | cut -d= -f2- | tr -d '"' || true)"
   _chat="$(grep -E '^TELEGRAM_DIGEST_CHAT_ID=' .env | head -n1 | cut -d= -f2- | tr -d '"' || true)"
   if [ -z "$_chat" ]; then
-    _chat="$(grep -E '^TELEGRAM_ALLOWED_USER_IDS=' .env | head -n1 | cut -d= -f2- | tr -d '"' | cut -d, -f1 || true)"
+    _chat="$(grep -E '^TELEGRAM_OWNER_USER_IDS=' .env | head -n1 | cut -d= -f2- | tr -d '"' | cut -d, -f1 || true)"
   fi
   if [ -n "$_bot" ] && [ -n "$_chat" ]; then
     curl -s "https://api.telegram.org/bot$_bot/sendMessage" \

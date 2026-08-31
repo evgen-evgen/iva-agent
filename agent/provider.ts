@@ -1,15 +1,20 @@
-import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { wrapLanguageModel, type LanguageModelMiddleware } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import {
-  imageMediaType,
-  imageRefsIn,
+  attachmentImageMediaType,
+  attachmentRefsIn,
   MAX_ATTACHED_IMAGES,
   MAX_ATTACHED_IMAGE_BYTES,
   MAX_IMAGE_BYTES,
 } from "./lib/attachment-ref.ts";
-import { resolveAttachmentPath } from "./lib/telegram-media-cache.ts";
+import { dataDir } from "./lib/data-dir.ts";
+import { LocalBlobStore } from "./lib/blob-store.ts";
+import { tenantContextForRecord } from "./lib/tenant-context.ts";
+import { TenantRegistry } from "./lib/tenant-registry.ts";
+import { TenantStore } from "./lib/tenant-store.ts";
+import { tenantIdFromProviderScope } from "./lib/tenant-provider-scope.ts";
 import { chatModelSeesImages } from "./vision.ts";
 import { CODEX_BASE_URL, codexAuthHeaders } from "./lib/codex-auth.ts";
 import { resolveContextWindow } from "./lib/context-window.ts";
@@ -213,25 +218,46 @@ function isUserMessage(
   );
 }
 
-function imageRefsInMessage(
+function attachmentRefsInMessage(
   message: Extract<ModelMessage, { role: "user" }>,
 ): string[] {
   const refs: string[] = [];
   for (const part of message.content) {
     if (part?.type !== "text") continue;
-    for (const rel of imageRefsIn(part.text))
-      if (!refs.includes(rel)) refs.push(rel);
+    for (const id of attachmentRefsIn(part.text))
+      if (!refs.includes(id)) refs.push(id);
   }
   return refs;
 }
 
-function readVaultImage(rel: string): Uint8Array {
-  // Путь на диске собирает и проверяет резолвер кэша медиа — единственное место, где
-  // rel-путь вложения превращается в абсолютный, с проверкой границ vault/attachments.
-  const path = resolveAttachmentPath(rel);
-  if (!path) throw new Error(`вложение недоступно: ${rel}`);
-  const file = readFileSync(path);
-  return new Uint8Array(file.buffer, file.byteOffset, file.byteLength);
+type ResolvedImage = { data: Uint8Array; mediaType: string };
+
+function readTenantImage(
+  tenantId: string,
+  attachmentId: string,
+): ResolvedImage {
+  const root = dataDir();
+  const registry = new TenantRegistry(join(root, "tenants.sqlite"));
+  try {
+    const record = registry.get(tenantId);
+    if (record === null || record.status !== "active")
+      throw new Error("attachment unavailable");
+    const context = tenantContextForRecord(record, join(root, "tenants"));
+    const store = new TenantStore(context);
+    try {
+      const blob = new LocalBlobStore(store).read(attachmentId);
+      const mediaType = attachmentImageMediaType(
+        blob.metadata.mediaType,
+        blob.metadata.originalName,
+      );
+      if (!mediaType) throw new Error("attachment is not a supported image");
+      return { data: Uint8Array.from(blob.data), mediaType };
+    } finally {
+      store.close();
+    }
+  } finally {
+    registry.close();
+  }
 }
 
 /**
@@ -245,13 +271,13 @@ function readVaultImage(rel: string): Uint8Array {
  */
 export function attachVaultImages(
   prompt: ModelPrompt,
-  { readImage }: { readImage: (rel: string) => Uint8Array },
+  { readImage }: { readImage: (attachmentId: string) => ResolvedImage },
 ): ModelPrompt {
   if (!Array.isArray(prompt)) return prompt;
   const mentions: { index: number; rel: string }[] = [];
   prompt.forEach((message, index) => {
     if (!isUserMessage(message)) return;
-    for (const rel of imageRefsInMessage(message)) {
+    for (const rel of attachmentRefsInMessage(message)) {
       // Дедуп по последнему упоминанию: пересланная заново картинка считается свежей.
       const seen = mentions.findIndex((mention) => mention.rel === rel);
       if (seen >= 0) mentions.splice(seen, 1);
@@ -274,21 +300,19 @@ export function attachVaultImages(
   const queue = mentions.slice(-MAX_ATTACHED_IMAGES).reverse();
   let budget = MAX_ATTACHED_IMAGE_BYTES;
   for (const [position, { index, rel }] of queue.entries()) {
-    const mediaType = imageMediaType(rel);
-    if (!mediaType) continue;
-    let data: Uint8Array;
+    let image: ResolvedImage;
     try {
-      data = readImage(rel);
+      image = readImage(rel);
     } catch (error) {
       // Файла нет или он не читается — ход важнее картинки, идём без неё.
       console.error(`[vision] картинку ${rel} из Vault не прочитал:`, error);
       continue;
     }
-    if (data.byteLength > MAX_IMAGE_BYTES) {
+    if (image.data.byteLength > MAX_IMAGE_BYTES) {
       console.error(`[vision] картинка ${rel} больше потолка, иду без неё`);
       continue;
     }
-    if (data.byteLength > budget) {
+    if (image.data.byteLength > budget) {
       // Дальше только более старые картинки: режем хвост целиком, чтобы выбор не зависел
       // от того, чей размер удачно совпал с остатком бюджета.
       for (const rest of queue.slice(position))
@@ -297,12 +321,16 @@ export function attachVaultImages(
         );
       break;
     }
-    budget -= data.byteLength;
+    budget -= image.data.byteLength;
     const attached = files.get(index) ?? [];
     // Тегированная форма обязательна: плоское `data: bytes` провайдеры спецификации v4
     // сериализуют в null и получают ошибку вместо картинки. filename провайдеры для
     // картинок не читают — не шлём.
-    attached.unshift({ type: "file", mediaType, data: { type: "data", data } });
+    attached.unshift({
+      type: "file",
+      mediaType: image.mediaType,
+      data: { type: "data", data: image.data },
+    });
     files.set(index, attached);
   }
   if (files.size === 0) return prompt;
@@ -313,6 +341,32 @@ export function attachVaultImages(
   });
 }
 
+export function attachTenantVaultImages(
+  prompt: ModelPrompt,
+  tenantId: string,
+): ModelPrompt {
+  return attachVaultImages(prompt, {
+    readImage: (attachmentId) => readTenantImage(tenantId, attachmentId),
+  });
+}
+
+export function trustedTenantIdInPrompt(prompt: ModelPrompt): string | null {
+  if (!Array.isArray(prompt)) return null;
+  return (
+    prompt
+      .filter(
+        (message): message is Extract<ModelMessage, { role: "system" }> =>
+          isRecord(message) && message.role === "system",
+      )
+      .map((message) =>
+        typeof message.content === "string"
+          ? tenantIdFromProviderScope(message.content)
+          : null,
+      )
+      .find((candidate) => candidate !== null) ?? null
+  );
+}
+
 export const attachImagesMiddleware: LanguageModelMiddleware = {
   async transformParams({ params }) {
     // Ссылки ищем ДО пробника: ход без картинок не будит сеть, и сам пробник (он идёт
@@ -320,13 +374,15 @@ export const attachImagesMiddleware: LanguageModelMiddleware = {
     if (!Array.isArray(params.prompt)) return params;
     const hasRefs = params.prompt.some(
       (message) =>
-        isUserMessage(message) && imageRefsInMessage(message).length > 0,
+        isUserMessage(message) && attachmentRefsInMessage(message).length > 0,
     );
     if (!hasRefs) return params;
+    const tenantId = trustedTenantIdInPrompt(params.prompt);
+    if (!tenantId) return params;
     if (!(await chatModelSeesImages())) return params;
     return {
       ...params,
-      prompt: attachVaultImages(params.prompt, { readImage: readVaultImage }),
+      prompt: attachTenantVaultImages(params.prompt, tenantId),
     };
   },
 };

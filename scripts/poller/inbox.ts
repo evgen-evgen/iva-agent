@@ -18,9 +18,10 @@ import {
   createCollector,
 } from "../lib/telegram-collect.ts";
 import { traceBridgeAdmission } from "#lib/trace.ts";
-import { ALLOWED, BOT_USERNAME, DATA_DIR, log } from "./config.ts";
+import { BOT_USERNAME, DATA_DIR, log } from "./config.ts";
 import { chatKey } from "./offset.ts";
 import { routeMessageUpdate, type RouteMessageResult } from "./routing.ts";
+import { isPrivateTelegramChat } from "#lib/telegram-private-chat.ts";
 
 export const TELEGRAM_INBOX_FILE = join(DATA_DIR, "telegram-inbox.json");
 
@@ -88,18 +89,13 @@ export function terminalDropLine(update: TelegramQueueUpdate): string {
 
 function senderPolicy(
   sender: InboxSender | undefined,
-  allowedUserIds: ReadonlySet<string>,
 ): "allowed" | "terminal-drop" | "unownable" {
   if (sender?.id === undefined) return "unownable";
-  if (allowedUserIds.size === 0 || sender.is_bot === true) {
-    return "terminal-drop";
-  }
-  return allowedUserIds.has(String(sender.id)) ? "allowed" : "terminal-drop";
+  return sender.is_bot === true ? "terminal-drop" : "allowed";
 }
 
 function admissionPolicy(
   update: TelegramQueueUpdate,
-  allowedUserIds: ReadonlySet<string>,
   botUsername: unknown,
 ): { action: "own"; key: string } | { action: "terminal-drop" | "unownable" } {
   const hasMessage = update.message !== undefined;
@@ -116,14 +112,20 @@ function admissionPolicy(
   const sender = hasMessage
     ? update.message?.from
     : update.callback_query?.from;
-  const senderDecision = senderPolicy(sender, allowedUserIds);
+  const senderDecision = senderPolicy(sender);
   if (senderDecision !== "allowed") return { action: senderDecision };
-
   const key = inboxKeyFor(update);
   if (key === null) return { action: "unownable" };
+  const chat = hasMessage
+    ? update.message?.chat
+    : update.callback_query?.message?.chat;
+  if (!isPrivateTelegramChat(chat)) {
+    return { action: "terminal-drop" };
+  }
+
   if (
     hasMessage &&
-    !shouldQueueBusyUpdate(update, { allowedUserIds, botUsername })
+    !shouldQueueBusyUpdate(update, { botUsername })
   ) {
     return { action: "terminal-drop" };
   }
@@ -162,13 +164,14 @@ export function selectReadyInboxBatch(
 export async function admitTelegramUpdate(
   update: TelegramQueueUpdate,
   {
-    allowedUserIds = ALLOWED,
+    allowedUserIds: _deprecatedAllowedUserIds,
     botUsername = BOT_USERNAME,
     trustedLocal = false,
     enqueueImpl = (key: string, candidate: TelegramQueueUpdate) =>
       enqueueQueueFile(TELEGRAM_INBOX_FILE, key, candidate, { strict: true }),
     logImpl = log,
   }: {
+    /** Deprecated and ignored: authenticated private users are auto-admitted. */
     allowedUserIds?: ReadonlySet<string>;
     botUsername?: unknown;
     /** Already-authorized local payload; bypasses external sender/group policy, never key validation. */
@@ -180,12 +183,13 @@ export async function admitTelegramUpdate(
     logImpl?: (...parts: unknown[]) => void;
   } = {},
 ): Promise<InboxAdmissionResult> {
+  void _deprecatedAllowedUserIds;
   const trustedKey = trustedLocal ? inboxKeyFor(update) : null;
   const decision = trustedLocal
     ? trustedKey === null
       ? { action: "unownable" as const }
       : { action: "own" as const, key: trustedKey }
-    : admissionPolicy(update, allowedUserIds, botUsername);
+    : admissionPolicy(update, botUsername);
   // Trace: мост принял апдейт или отбросил его своей политикой — первое звено цепочки
   // хода, и пишется оно из ПРОЦЕССА МОСТА в тот же дневной файл (ADR-0010).
   if (decision.action !== "own") {

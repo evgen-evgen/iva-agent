@@ -50,8 +50,7 @@ agent/skills/**/*.pem
 attachments/
 scripts/xfeed/
 
-# Local working contract, not part of the public product
+# Local tool-specific working notes
 CLAUDE.md
-AGENTS.md
 docs/agents/
 .scratch/

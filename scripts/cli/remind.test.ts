@@ -175,10 +175,10 @@ void test("a missing token or chat fails before the agent turn", async () => {
     {
       env: {
         TELEGRAM_BOT_TOKEN: "bot-token",
-        TELEGRAM_ALLOWED_USER_IDS: " , ",
+        TELEGRAM_OWNER_USER_IDS: " , ",
       },
       expected:
-        "No target chat — set TELEGRAM_DIGEST_CHAT_ID or TELEGRAM_ALLOWED_USER_IDS in .env",
+        "No target chat — set TELEGRAM_DIGEST_CHAT_ID or TELEGRAM_OWNER_USER_IDS in .env",
     },
   ]) {
     const remind = remindCommand(

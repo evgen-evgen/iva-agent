@@ -373,10 +373,10 @@ test("allowlist: чужой тап ack-нут и проглочен — без �
   assert.equal(flows.get(10, "20"), st); // стейт владельца не тронут
 });
 
-test("allowlist пуст: любой тап проглочен", async () => {
+test("legacy allowlist не блокирует private tenant", async () => {
   const { menu, log } = setup({ allowed: new Set() });
   await menu.onCallback(cb("iva_menu:srch:o", { messageId: 1 }));
-  assert.equal(log.render.length, 0);
+  assert.equal(log.render.length, 1);
   assert.equal(log.on.length, 0);
 });
 

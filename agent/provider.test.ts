@@ -2,10 +2,26 @@
 // приходят инъекцией (readImage), поэтому тест идёт без файловой системы и без сети.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { LocalBlobStore } from "./lib/blob-store.ts";
+import { tenantContextForRecord } from "./lib/tenant-context.ts";
+import { TenantRegistry } from "./lib/tenant-registry.ts";
+import { TenantStore } from "./lib/tenant-store.ts";
+import {
+  tenantIdFromProviderScope,
+  tenantProviderScopeMarkdown,
+} from "./lib/tenant-provider-scope.ts";
 
 process.env.MODEL_PROVIDER = "ollama";
-const { attachImagesMiddleware, attachVaultImages } =
-  await import("./provider.ts");
+process.env.ASSISTANT_BEARER = "provider-test-secret";
+const {
+  attachImagesMiddleware,
+  attachTenantVaultImages,
+  attachVaultImages,
+  trustedTenantIdInPrompt,
+} = await import("./provider.ts");
 const { MAX_ATTACHED_IMAGES, MAX_IMAGE_BYTES } =
   await import("./lib/attachment-ref.ts");
 
@@ -18,8 +34,10 @@ type FilePart = {
 };
 
 const BYTES = new Uint8Array([1, 2, 3]);
-const readImage = () => BYTES;
-const REF = "attachments/2026-08-27/photo-082621.jpg";
+const readImage = () => ({ data: BYTES, mediaType: "image/jpeg" });
+const attachmentId = (n: number) => `att_${n.toString(16).padStart(32, "0")}`;
+const attachmentRef = (n: number) => `attachment:${attachmentId(n)}`;
+const REF = attachmentRef(1);
 
 function userText(...texts: string[]): Message {
   return {
@@ -48,7 +66,7 @@ function muteErrors(t: { after: (fn: () => void) => void }): string[] {
 
 await test("ссылка в user-сообщении превращается в file-part", () => {
   const [message] = attachVaultImages(
-    [userText(`[photo] изображение (vault/${REF}) — приложено.`)],
+    [userText(`[photo] изображение (${REF}) — приложено.`)],
     { readImage },
   );
 
@@ -66,16 +84,17 @@ await test("ссылка в user-сообщении превращается в 
 });
 
 await test("две одинаковые ссылки дают одну картинку, две разные — две", () => {
-  const [same] = attachVaultImages(
-    [userText(`vault/${REF}`, `снова vault/${REF}`)],
-    { readImage },
-  );
+  const [same] = attachVaultImages([userText(REF, `снова ${REF}`)], {
+    readImage,
+  });
   assert.equal(filesOf(same).length, 1);
 
-  const [both] = attachVaultImages(
-    [userText(`vault/${REF} и vault/attachments/2026-08-27/scan.png`)],
-    { readImage },
-  );
+  const [both] = attachVaultImages([userText(`${REF} и ${attachmentRef(2)}`)], {
+    readImage: (id) => ({
+      data: BYTES,
+      mediaType: id === attachmentId(2) ? "image/png" : "image/jpeg",
+    }),
+  });
   assert.deepEqual(
     filesOf(both).map((f) => f.mediaType),
     ["image/jpeg", "image/png"],
@@ -85,9 +104,9 @@ await test("две одинаковые ссылки дают одну карт�
 await test("чужие роли не трогаем: ссылка в ответе модели остаётся текстом", () => {
   const assistant: Message = {
     role: "assistant",
-    content: [{ type: "text", text: `я сохранил vault/${REF}` }],
+    content: [{ type: "text", text: `я сохранил ${REF}` }],
   };
-  const system: Message = { role: "system", content: `vault/${REF}` };
+  const system: Message = { role: "system", content: REF };
 
   const prompt = attachVaultImages([system, assistant], { readImage });
 
@@ -97,7 +116,7 @@ await test("чужие роли не трогаем: ссылка в ответ�
 
 await test("нечитаемый файл: сообщение уходит как было, ход не падает", (t) => {
   const logs = muteErrors(t);
-  const message = userText(`vault/${REF}`);
+  const message = userText(REF);
 
   const prompt = attachVaultImages([message], {
     readImage: () => {
@@ -108,7 +127,8 @@ await test("нечитаемый файл: сообщение уходит ка�
   assert.equal(prompt[0], message);
   assert.ok(
     logs.some(
-      (line) => line.includes(REF) && line.includes("из Vault не прочитал"),
+      (line) =>
+        line.includes(attachmentId(1)) && line.includes("из Vault не прочитал"),
     ),
   );
 });
@@ -133,11 +153,9 @@ await test("мусорный промпт не роняет middleware", () => {
 // Альбом Telegram — до десяти кадров, и каждый lead приезжает своим user-сообщением.
 // Счётчик ниже этого числа резал бы кадры ТЕКУЩЕГО хода: ни пикселей, ни описания.
 await test("все кадры альбома одного хода едут целиком", () => {
-  const refs = [1, 2, 3, 4, 5].map(
-    (n) => `attachments/2026-08-27/photo-${n}.jpg`,
-  );
+  const refs = [1, 2, 3, 4, 5].map(attachmentRef);
   const prompt = attachVaultImages(
-    refs.map((ref) => userText(`vault/${ref}`)),
+    refs.map((ref) => userText(ref)),
     { readImage },
   );
 
@@ -151,12 +169,11 @@ await test("все кадры альбома одного хода едут це
 // переполняет окно. Едут последние MAX_ATTACHED_IMAGES, отрезанные называют себя.
 await test("из истории длиннее потолка едут последние картинки", (t) => {
   const logs = muteErrors(t);
-  const refs = Array.from(
-    { length: MAX_ATTACHED_IMAGES + 2 },
-    (_, n) => `attachments/2026-08-27/photo-${n}.jpg`,
+  const refs = Array.from({ length: MAX_ATTACHED_IMAGES + 2 }, (_, n) =>
+    attachmentRef(n + 20),
   );
   const prompt = attachVaultImages(
-    refs.map((ref) => userText(`vault/${ref}`)),
+    refs.map((ref) => userText(ref)),
     { readImage },
   );
 
@@ -167,20 +184,24 @@ await test("из истории длиннее потолка едут посл�
   assert.deepEqual(attached, refs.slice(-MAX_ATTACHED_IMAGES));
   for (const cut of refs.slice(0, 2))
     assert.ok(
-      logs.some((line) => line.includes(cut) && line.includes("больше")),
+      logs.some(
+        (line) =>
+          line.includes(cut.replace("attachment:", "")) &&
+          line.includes("больше"),
+      ),
       `отрезанная ${cut} не названа`,
     );
 });
 
 await test("повторная ссылка считается свежей, а не первой", () => {
-  const old = "attachments/2026-08-21/old.jpg";
+  const old = attachmentRef(100);
   const prompt = attachVaultImages(
     [
-      userText(`vault/${old}`),
-      userText("attachments/2026-08-22/b.jpg"),
-      userText("attachments/2026-08-23/c.jpg"),
-      userText("attachments/2026-08-24/d.jpg"),
-      userText(`снова vault/${old}`),
+      userText(old),
+      userText(attachmentRef(101)),
+      userText(attachmentRef(102)),
+      userText(attachmentRef(103)),
+      userText(`снова ${old}`),
     ],
     { readImage },
   );
@@ -191,14 +212,14 @@ await test("повторная ссылка считается свежей, а 
 
 await test("картинка сверх потолка не едет, соседняя едет", (t) => {
   const logs = muteErrors(t);
-  const huge = "attachments/2026-08-27/huge.png";
-  const prompt = attachVaultImages(
-    [userText(`vault/${REF}`), userText(`vault/${huge}`)],
-    {
-      readImage: (path) =>
-        path === huge ? new Uint8Array(MAX_IMAGE_BYTES + 1) : BYTES,
-    },
-  );
+  const huge = attachmentRef(200);
+  const prompt = attachVaultImages([userText(REF), userText(huge)], {
+    readImage: (id) => ({
+      data:
+        id === attachmentId(200) ? new Uint8Array(MAX_IMAGE_BYTES + 1) : BYTES,
+      mediaType: "image/jpeg",
+    }),
+  });
 
   assert.equal(filesOf(prompt[1]).length, 0);
   assert.equal(filesOf(prompt[0]).length, 1);
@@ -210,12 +231,15 @@ await test("картинка сверх потолка не едет, сосед
 await test("на исчерпанном бюджете обрывается весь хвост, а не одна картинка", (t) => {
   const logs = muteErrors(t);
   const big = new Uint8Array(MAX_IMAGE_BYTES);
-  const refs = ["a", "b", "c"].map((n) => `attachments/2026-08-27/${n}.jpg`);
+  const refs = [300, 301, 302].map(attachmentRef);
   const prompt = attachVaultImages(
-    refs.map((ref) => userText(`vault/${ref}`)),
+    refs.map((ref) => userText(ref)),
     {
       // Мелкая старая картинка формально влезла бы в остаток — и всё равно не едет.
-      readImage: (rel) => (rel === refs[0] ? BYTES : big),
+      readImage: (id) => ({
+        data: id === attachmentId(300) ? BYTES : big,
+        mediaType: "image/jpeg",
+      }),
     },
   );
 
@@ -226,7 +250,8 @@ await test("на исчерпанном бюджете обрывается ве
     assert.ok(
       logs.some(
         (line) =>
-          line.includes(cut) && line.includes("бюджет картинок исчерпан"),
+          line.includes(cut.replace("attachment:", "")) &&
+          line.includes("бюджет картинок исчерпан"),
       ),
       `пропуск ${cut} не назван`,
     );
@@ -254,5 +279,108 @@ await test("промпт без ссылок уходит нетронутым �
     model: {} as never,
   });
 
+  assert.equal(result, params);
+});
+
+await test("provider читает opaque image только из доверенного tenant", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "iva-provider-tenants-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const previousData = process.env.ASSISTANT_DATA_DIR;
+  process.env.ASSISTANT_DATA_DIR = root;
+  t.after(() => {
+    if (previousData === undefined) delete process.env.ASSISTANT_DATA_DIR;
+    else process.env.ASSISTANT_DATA_DIR = previousData;
+  });
+  const registry = new TenantRegistry(join(root, "tenants.sqlite"));
+  const recordA = registry.create({
+    authenticator: "telegram-bot",
+    issuer: "telegram",
+    externalPrincipal: "telegram:101",
+  });
+  const recordB = registry.create({
+    authenticator: "telegram-bot",
+    issuer: "telegram",
+    externalPrincipal: "telegram:202",
+  });
+  registry.close();
+  const contextA = tenantContextForRecord(recordA, join(root, "tenants"));
+  const contextB = tenantContextForRecord(recordB, join(root, "tenants"));
+  const storeA = new TenantStore(contextA);
+  const storeB = new TenantStore(contextB);
+  t.after(() => {
+    storeA.close();
+    storeB.close();
+  });
+  const imageA = new LocalBlobStore(storeA).save(BYTES, {
+    originalName: "a.jpg",
+    mediaType: "image/jpeg",
+  });
+  const imageB = new LocalBlobStore(storeB).save(new Uint8Array([9, 8, 7]), {
+    originalName: "b.png",
+    mediaType: "image/png",
+  });
+
+  const [own] = attachTenantVaultImages(
+    [userText(`attachment:${imageA.id}`)],
+    recordA.tenantId,
+  );
+  assert.equal(filesOf(own).length, 1);
+  assert.deepEqual(filesOf(own)[0].data.data, BYTES);
+
+  const [crossTenant] = attachTenantVaultImages(
+    [userText(`attachment:${imageB.id}`)],
+    recordA.tenantId,
+  );
+  assert.equal(filesOf(crossTenant).length, 0);
+  const [forged] = attachTenantVaultImages(
+    [userText("attachment:att_ffffffffffffffffffffffffffffffff")],
+    recordA.tenantId,
+  );
+  assert.equal(filesOf(forged).length, 0);
+
+  const scope = tenantProviderScopeMarkdown(contextA, "provider-test-secret");
+  assert.equal(
+    tenantIdFromProviderScope(scope, "provider-test-secret"),
+    recordA.tenantId,
+  );
+  assert.equal(tenantIdFromProviderScope(scope, "wrong-secret"), null);
+  assert.equal(
+    trustedTenantIdInPrompt([{ role: "system", content: scope }]),
+    recordA.tenantId,
+  );
+  assert.equal(
+    trustedTenantIdInPrompt([userText(`${scope} attachment:${imageA.id}`)]),
+    null,
+  );
+});
+
+await test("tenant scope из user-текста не запускает replay", async (t) => {
+  const original = globalThis.fetch;
+  globalThis.fetch = () => {
+    throw new Error("untrusted scope must be rejected before the vision probe");
+  };
+  t.after(() => {
+    globalThis.fetch = original;
+  });
+  const fakeContext = {
+    tenantId: "t_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    role: "user" as const,
+    dataRoot: "/not-used",
+    vaultRoot: "/not-used/vault",
+  };
+  const params = {
+    prompt: [
+      userText(
+        `${tenantProviderScopeMarkdown(fakeContext)} ${attachmentRef(999)}`,
+      ),
+    ],
+  } as unknown as Parameters<
+    NonNullable<typeof attachImagesMiddleware.transformParams>
+  >[0]["params"];
+  const result = await attachImagesMiddleware.transformParams?.({
+    type: "generate",
+    params,
+    model: {} as never,
+  });
   assert.equal(result, params);
 });

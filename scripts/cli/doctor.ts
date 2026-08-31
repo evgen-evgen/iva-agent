@@ -138,7 +138,7 @@ export function createDoctorCommand(
           ...providerEnvKeys(provider),
           "DEEPGRAM_API_KEY",
           "TELEGRAM_BOT_TOKEN",
-          "TELEGRAM_ALLOWED_USER_IDS",
+          "TELEGRAM_OWNER_USER_IDS",
           "ASSISTANT_BEARER",
         ];
         const missing = required.filter((key) => !(env[key] || "").trim());

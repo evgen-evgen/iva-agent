@@ -24,7 +24,6 @@ import { tr } from "#lib/i18n.ts";
 import { TELEGRAM_CLOSED_SESSION_KIND } from "#lib/telegram-acceptance.ts";
 import {
   ACCEPTANCE_ROUTE,
-  ALLOWED,
   BOT_USERNAME,
   DATA_DIR,
   DIRECT_ACCEPTANCE_TIMEOUT_MS,
@@ -222,7 +221,7 @@ export async function routeMessageUpdate(
     deleteMessageImpl = deleteStaleWorkingMessage,
     now = Date.now,
     trImpl = tr,
-    allowedUserIds = ALLOWED,
+    allowedUserIds,
     botUsername = BOT_USERNAME,
     logImpl = log,
   }: {
@@ -235,7 +234,7 @@ export async function routeMessageUpdate(
     shouldQueueImpl?: (
       update: TelegramQueueUpdate,
       options: {
-        allowedUserIds: ReadonlySet<string>;
+        allowedUserIds?: ReadonlySet<string>;
         botUsername: unknown;
       },
     ) => boolean;
@@ -322,7 +321,7 @@ export async function drainReadyQueueHeads({
     }),
   acknowledgeImpl = (key: string, updateId: number) =>
     acknowledgeQueueHead(QUEUE_FILE, key, updateId),
-  legacyAllowedUserIds = ALLOWED,
+  legacyAllowedUserIds,
   now = Date.now,
   settleUntil = queueSettleUntil,
   inFlight = queueInFlight,

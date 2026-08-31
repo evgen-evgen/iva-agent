@@ -68,7 +68,7 @@ and **only the Bridge produces it**: callbacks never reach `runTelegramInbound`,
 | ----------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | `bridge.admitted` / `bridge.dropped`                              | `updateId`, `chatId`, `messageId`, `kind` (`message`/`callback`), `decision` (`owned`/`terminal-drop`/`unownable`/`write-failed`) |
 | `bridge.delivered` / `bridge.rejected`                            | the same fields plus `accepted` (`true`/`false`/`"handled"`), `ms`                                                                |
-| `inbound.received`                                                | `chatId`, `chatType`, `messageId`, `userId`, `allowlisted`; content: `text`                                                       |
+| `inbound.received`                                                | `chatId`, `chatType`, `messageId`, `userId`, `tenantAdmitted`; content: `text`                                                    |
 | `inbound.accepted` / `inbound.dropped`                            | `chatId`, `chatKey`, `parts`, `partChars[]`; content: `context[]`                                                                 |
 | `gate.inbound` / `gate.web`                                       | `surface`, `blocked`, `reason`, `flags[]`, `truncatedChars`, `chars`                                                              |
 | `turn.bound`                                                      | `chatKey`, `updateKey`                                                                                                            |

@@ -8,8 +8,6 @@
 //
 // Всё, что ходит наружу (Bot API, зрение, транскрипция), приходит эффектами:
 // шаг тестируется без eve и без сети.
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { tr } from "./i18n.ts";
 import { redactNotice, type NoticeSend } from "./outbox.ts";
 import { hasInboundAttackSignal, sanitizeInbound } from "./security-gate.ts";
@@ -23,11 +21,19 @@ import {
   injectionWarning,
 } from "./telegram-gate-notice.ts";
 import { readTelegramMessageText } from "./telegram-rich-message.ts";
-import { imageMediaType, MAX_IMAGE_BYTES } from "./attachment-ref.ts";
-import { appendDaily, localStamp, saveBlob } from "./vault-daily.ts";
+import {
+  attachmentImageMediaType,
+  attachmentReference,
+  MAX_IMAGE_BYTES,
+} from "./attachment-ref.ts";
+import { appendDaily } from "./vault-daily.ts";
 import type { TelegramRawMedia, TelegramRawMessage } from "./telegram-parts.ts";
+import type { TenantContext } from "./tenant-context.ts";
+import { LocalBlobStore, type BlobMetadata } from "./blob-store.ts";
+import { TenantStore } from "./tenant-store.ts";
 
 export type TelegramMediaEffects = {
+  readonly tenant: TenantContext;
   readonly request: (
     method: string,
     body?: { file_id: string },
@@ -83,17 +89,38 @@ export async function processMediaPart(
   const tag = `[${media.tag}]`;
   const caption = readTelegramMessageText(raw, "").text.trim();
   const capSuffix = caption ? `\n\n${caption}` : "";
+  const tenantStore = new TenantStore(effects.tenant);
+  const blobs = new LocalBlobStore(tenantStore);
   try {
     let cached = null;
     if (media.fileUniqueId) {
       try {
-        cached = await getTelegramMediaCacheEntry(media.fileUniqueId);
+        cached = await getTelegramMediaCacheEntry(
+          tenantStore,
+          media.fileUniqueId,
+        );
       } catch (error) {
         // Кэш факультативен: сбой чтения не должен блокировать обработку медиа.
         console.error("[telegram] не смог прочитать кэш медиа:", error);
       }
     }
-    let rel = cached?.path;
+    let attachmentId = cached?.attachmentId;
+    let blobMetadata: BlobMetadata | undefined;
+    let bytes: ArrayBuffer | undefined;
+    if (attachmentId) {
+      try {
+        const saved = blobs.read(attachmentId);
+        blobMetadata = saved.metadata;
+        bytes = Uint8Array.from(saved.data).buffer;
+      } catch (error) {
+        console.error(
+          "[telegram] не смог прочитать сохранённый blob, скачиваю заново:",
+          error,
+        );
+        attachmentId = undefined;
+        bytes = undefined;
+      }
+    }
     let vision = cached?.vision ?? "";
     let transcript = cached?.transcript ?? "";
     const isStillImage =
@@ -107,29 +134,12 @@ export async function processMediaPart(
     let chatSeesImage = false;
     const needsTranscript =
       media.transcribe && cached?.transcript === undefined;
-    if (!rel || undecidedImage || needsTranscript) {
-      let bytes: ArrayBuffer | undefined;
-      if (rel) {
-        try {
-          const saved = readFileSync(
-            join(process.env.ASSISTANT_VAULT_DIR || "vault", rel),
-          );
-          bytes = saved.buffer.slice(
-            saved.byteOffset,
-            saved.byteOffset + saved.byteLength,
-          );
-        } catch (error) {
-          console.error(
-            "[telegram] не смог прочитать сохранённый blob, скачиваю заново:",
-            error,
-          );
-          rel = undefined;
-        }
-      }
-      if (!rel) {
+    if (!attachmentId || undecidedImage || needsTranscript) {
+      if (!attachmentId) {
         const file = await fetchTelegramFile(effects.request, media.fileId);
         if (file && "tooBig" in file) {
           appendDaily(
+            effects.tenant.vaultRoot,
             tag,
             `${tr("(file >20MB — Telegram won't hand it to bots)", "(файл >20MB — Telegram не отдаёт его ботам)")}${capSuffix}`,
           );
@@ -162,13 +172,15 @@ export async function processMediaPart(
             tr("getFile/download failed", "getFile/скачивание не удалось"),
           );
         bytes = file.bytes;
-        rel = saveBlob(
-          bytes,
-          media.fileName,
-          media.tag,
-          media.mimeType,
-          localStamp(),
-        );
+        blobMetadata = blobs.save(new Uint8Array(bytes), {
+          ...(media.fileName ? { originalName: media.fileName } : {}),
+          ...(media.mimeType
+            ? { mediaType: media.mimeType }
+            : media.tag === "photo"
+              ? { mediaType: "image/jpeg" }
+              : {}),
+        });
+        attachmentId = blobMetadata.id;
       }
       if (!bytes)
         throw new Error(
@@ -176,7 +188,7 @@ export async function processMediaPart(
         );
 
       const cacheEntry: TelegramMediaCacheEntry = {
-        path: rel,
+        attachmentId,
         ...(cached?.vision !== undefined ? { vision: cached.vision } : {}),
         ...(cached?.transcript !== undefined
           ? { transcript: cached.transcript }
@@ -189,7 +201,10 @@ export async function processMediaPart(
         // суффикса имени файла и тяжёлое фото туда не попадают — им прежний путь
         // через vision-модель.
         chatSeesImage =
-          imageMediaType(rel) !== undefined &&
+          attachmentImageMediaType(
+            blobMetadata?.mediaType,
+            blobMetadata?.originalName,
+          ) !== undefined &&
           bytes.byteLength <= MAX_IMAGE_BYTES &&
           (await effects.chatModelSeesImages());
         if (!chatSeesImage) {
@@ -218,17 +233,26 @@ export async function processMediaPart(
       }
       if (media.fileUniqueId) {
         try {
-          await saveTelegramMediaCacheEntry(media.fileUniqueId, cacheEntry);
+          await saveTelegramMediaCacheEntry(
+            tenantStore,
+            media.fileUniqueId,
+            cacheEntry,
+          );
         } catch (error) {
           console.error("[telegram] не смог записать кэш медиа:", error);
         }
       }
     }
 
+    if (!attachmentId) throw new Error("attachment save failed");
+    const reference = attachmentReference(attachmentId);
     const body = vision || transcript;
     const dailyPath = appendDaily(
+      effects.tenant.vaultRoot,
       tag,
-      body ? `![[${rel}]]\n\n${body}${capSuffix}` : `![[${rel}]]${capSuffix}`,
+      body
+        ? `![[${reference}]]\n\n${body}${capSuffix}`
+        : `![[${reference}]]${capSuffix}`,
     );
     if (
       dropSilent &&
@@ -240,7 +264,7 @@ export async function processMediaPart(
       return { kind: "silent", context: [] };
     }
 
-    const path = `${process.env.ASSISTANT_VAULT_DIR || "vault"}/${rel}`;
+    const path = reference;
     const isImage =
       media.tag === "photo" ||
       media.tag === "sticker" ||
@@ -369,5 +393,7 @@ export async function processMediaPart(
         ),
       ],
     };
+  } finally {
+    tenantStore.close();
   }
 }

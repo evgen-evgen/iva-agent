@@ -815,6 +815,7 @@ void test("Trace: старт хода снимает состав памяти, 
     continuationToken: "telegram:941::",
     sessionId: "wrun_41",
     turnId: "turn_5",
+    vaultRoot: vault,
     getStatusImpl: status.get,
     setStatusIfImpl: status.cas,
   });

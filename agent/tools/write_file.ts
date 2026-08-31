@@ -2,7 +2,9 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { existsSync, realpathSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
-import { writeFileAtomic } from "../lib/fs-atomic.js";
+import { writeFileAtomic } from "../lib/fs-atomic.ts";
+import { resolveTenantMemoryPath } from "../lib/tenant-memory-path.ts";
+import { tenantContextFromSession } from "../lib/tenant-session.ts";
 
 // Host-native запись файла. Переопределяет встроенный write_file eve: пишет реальный
 // файл на VPS через каноническую атомарную запись, создавая родительские директории.
@@ -11,8 +13,6 @@ import { writeFileAtomic } from "../lib/fs-atomic.js";
 // это полная замена файла, из-за которой терялись поля (tier/relevance/phone…) и старый текст.
 // Такие правки идут через write_card (он сливает). Всё остальное (vault/CORE.md, daily,
 // новые файлы в cards/) write_file пишет как раньше — см. instructions/10-map.md.
-
-const VAULT = () => process.env.ASSISTANT_VAULT_DIR || "vault";
 
 // Сравниваем РЕАЛЬНЫЕ пути (realpath), а не лексические: симлинк vault/alias → cards
 // не должен обходить гард. Несуществующие пути realpath не берёт — резолвим родителя.
@@ -24,8 +24,8 @@ function realOrNull(p: string): string | null {
   }
 }
 
-function isExistingCard(path: string): boolean {
-  const cards = realOrNull(resolve(VAULT(), "cards"));
+function isExistingCard(vault: string, path: string): boolean {
+  const cards = realOrNull(resolve(vault, "cards"));
   if (!cards) return false; // cards/ ещё нет — нечего защищать
   const abs = resolve(path);
   if (!existsSync(abs)) return false;
@@ -40,16 +40,18 @@ function isExistingCard(path: string): boolean {
 
 export default defineTool({
   description:
-    "Записать файл НАПРЯМУЮ на файловую систему хоста VPS (UTF-8). " +
+    "Записать UTF-8 файл в свой личный vault. " +
     "Родительские директории создаются автоматически (mkdir -p). " +
     "Перезаписывает файл целиком. Возвращает { ok, path, bytes }. " +
     "ИСКЛЮЧЕНИЕ: существующую карточку в vault/cards/** перезаписывать нельзя — используй write_card.",
   inputSchema: z.object({
-    path: z.string().min(1).describe("Абсолютный путь к файлу на хосте"),
+    path: z.string().min(1).describe("Путь относительно личного vault"),
     content: z.string().describe("Содержимое для записи (UTF-8)"),
   }),
-  async execute({ path, content }) {
-    if (isExistingCard(path)) {
+  async execute({ path, content }, ctx) {
+    const tenant = tenantContextFromSession(ctx);
+    const target = resolveTenantMemoryPath(tenant.vaultRoot, path);
+    if (isExistingCard(tenant.vaultRoot, target)) {
       return {
         ok: false,
         path,
@@ -58,7 +60,7 @@ export default defineTool({
           "Используй write_card: он сливает новое содержимое со старым.",
       };
     }
-    await writeFileAtomic(path, content);
+    await writeFileAtomic(target, content, { mode: 0o600 });
     return { ok: true, path, bytes: Buffer.byteLength(content, "utf8") };
   },
 });

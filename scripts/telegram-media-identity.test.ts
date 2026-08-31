@@ -12,13 +12,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test, { after } from "node:test";
 import { addTelegramQueueReceipt } from "../agent/lib/telegram-acceptance.ts";
+import { resolveTelegramTenantForUserId } from "../agent/lib/telegram-tenant-resolver.ts";
+import { TenantStore } from "../agent/lib/tenant-store.ts";
+import { getTelegramMediaCacheEntry } from "../agent/lib/telegram-media-cache.ts";
 
 const root = mkdtempSync(join(tmpdir(), "iva-media-identity-test-"));
 const dataDir = join(root, "data");
-const vaultDir = join(root, "vault");
+const legacyVaultDir = join(root, "vault");
 const WEBHOOK_SECRET = "media-identity-secret";
 process.env.ASSISTANT_DATA_DIR = dataDir;
-process.env.ASSISTANT_VAULT_DIR = vaultDir;
+process.env.ASSISTANT_VAULT_DIR = legacyVaultDir;
 process.env.TELEGRAM_ALLOWED_USER_IDS = "9";
 process.env.TELEGRAM_BOT_TOKEN = "999:media-test-token";
 process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN = WEBHOOK_SECRET;
@@ -26,6 +29,8 @@ process.env.TELEGRAM_BOT_USERNAME = "my_bot";
 process.env.AGENT_LANGUAGE = "en";
 process.env.MODEL_PROVIDER = "openrouter";
 process.env.OPENROUTER_API_KEY = "test-provider-key";
+const tenantContext = resolveTelegramTenantForUserId("9");
+const vaultDir = tenantContext.vaultRoot;
 
 const counts = { download: 0, vision: 0, transcript: 0, turns: 0 };
 let visionText = "derived once";
@@ -128,8 +133,6 @@ function voiceUpdate(updateId: number, fileUniqueId: string) {
 
 type TestUpdate =
   ReturnType<typeof mediaUpdate> | ReturnType<typeof voiceUpdate>;
-type MediaCache = Record<string, { transcript?: string; vision?: string }>;
-
 async function deliver(update: TestUpdate) {
   const response = await route!.handler(
     new Request("http://iva.test/eve/v1/telegram/accepted", {
@@ -163,6 +166,15 @@ async function deliver(update: TestUpdate) {
   return response.headers.get("x-iva-telegram-acceptance");
 }
 
+async function cacheEntry(fileUniqueId: string) {
+  const store = new TenantStore(tenantContext);
+  try {
+    return await getTelegramMediaCacheEntry(store, fileUniqueId);
+  } finally {
+    store.close();
+  }
+}
+
 function dailyEntries() {
   const dailyDir = join(vaultDir, "daily");
   if (!existsSync(dailyDir)) return 0;
@@ -180,13 +192,13 @@ test("three deliveries create one media derivation, while a new update reuses th
   assert.equal(await deliver(mediaUpdate(701, "stable-photo")), "handled");
   assert.equal(await deliver(mediaUpdate(701, "stable-photo")), "handled");
   assert.equal(counts.download - before.download, 1);
-  assert.equal(counts.vision - before.vision, 1);
+  assert.equal(counts.vision - before.vision, 2); // one capability probe + one derivation
   assert.equal(counts.turns - before.turns, 1);
   assert.equal(dailyEntries() - before.daily, 1);
 
   assert.equal(await deliver(mediaUpdate(702, "stable-photo")), "turn");
   assert.equal(counts.download - before.download, 1);
-  assert.equal(counts.vision - before.vision, 1);
+  assert.equal(counts.vision - before.vision, 2);
   assert.equal(counts.turns - before.turns, 2);
   assert.equal(dailyEntries() - before.daily, 2);
 });
@@ -201,10 +213,7 @@ test("an empty vision result is cached and does not trigger another provider cal
   assert.equal(counts.turns - before.turns, 2);
   assert.equal(dailyEntries() - before.daily, 2);
 
-  const cache = JSON.parse(
-    readFileSync(join(dataDir, "media-cache.json"), "utf8"),
-  ) as MediaCache;
-  assert.equal(cache["empty-vision-photo"].vision, "");
+  assert.equal((await cacheEntry("empty-vision-photo"))?.vision, "");
 });
 
 test("a failed vision result is not cached and the next delivery retries the provider", async () => {
@@ -212,10 +221,7 @@ test("a failed vision result is not cached and the next delivery retries the pro
   visionStatus = 503;
   assert.equal(await deliver(mediaUpdate(705, "failed-vision-photo")), "turn");
 
-  let cache = JSON.parse(
-    readFileSync(join(dataDir, "media-cache.json"), "utf8"),
-  ) as MediaCache;
-  assert.equal(cache["failed-vision-photo"].vision, undefined);
+  assert.equal((await cacheEntry("failed-vision-photo"))?.vision, undefined);
 
   visionStatus = 200;
   visionText = "derived after retry";
@@ -225,10 +231,10 @@ test("a failed vision result is not cached and the next delivery retries the pro
   assert.equal(counts.turns - before.turns, 2);
   assert.equal(dailyEntries() - before.daily, 2);
 
-  cache = JSON.parse(
-    readFileSync(join(dataDir, "media-cache.json"), "utf8"),
-  ) as MediaCache;
-  assert.equal(cache["failed-vision-photo"].vision, "derived after retry");
+  assert.equal(
+    (await cacheEntry("failed-vision-photo"))?.vision,
+    "derived after retry",
+  );
 });
 
 test("an empty transcript result is cached and does not trigger another provider call", async () => {
@@ -246,10 +252,7 @@ test("an empty transcript result is cached and does not trigger another provider
   assert.equal(counts.transcript - before.transcript, 1);
   assert.equal(counts.turns - before.turns, 2);
 
-  const cache = JSON.parse(
-    readFileSync(join(dataDir, "media-cache.json"), "utf8"),
-  ) as MediaCache;
-  assert.equal(cache["empty-transcript-voice"].transcript, "");
+  assert.equal((await cacheEntry("empty-transcript-voice"))?.transcript, "");
 });
 
 test("a failed transcript result reuses the blob and retries the provider", async () => {
@@ -260,10 +263,10 @@ test("a failed transcript result reuses the blob and retries the provider", asyn
     "turn",
   );
 
-  let cache = JSON.parse(
-    readFileSync(join(dataDir, "media-cache.json"), "utf8"),
-  ) as MediaCache;
-  assert.equal(cache["failed-transcript-voice"].transcript, undefined);
+  assert.equal(
+    (await cacheEntry("failed-transcript-voice"))?.transcript,
+    undefined,
+  );
 
   transcriptStatus = 200;
   transcriptText = "transcribed after retry";
@@ -275,11 +278,8 @@ test("a failed transcript result reuses the blob and retries the provider", asyn
   assert.equal(counts.transcript - before.transcript, 2);
   assert.equal(counts.turns - before.turns, 2);
 
-  cache = JSON.parse(
-    readFileSync(join(dataDir, "media-cache.json"), "utf8"),
-  ) as MediaCache;
   assert.equal(
-    cache["failed-transcript-voice"].transcript,
+    (await cacheEntry("failed-transcript-voice"))?.transcript,
     "transcribed after retry",
   );
 });

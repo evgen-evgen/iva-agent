@@ -34,7 +34,7 @@ iva post --md-file /tmp/post.md
 
 - Recipient: by default the message goes to `TELEGRAM_DIGEST_CHAT_ID` from
   `.env`. An explicit `--chat <id>` is accepted ONLY if the id is allowlisted
-  (`TELEGRAM_ALLOWED_USER_IDS` + `TELEGRAM_DIGEST_CHAT_ID`) — the recipient of
+  (`TELEGRAM_OWNER_USER_IDS` + `TELEGRAM_DIGEST_CHAT_ID`) — the recipient of
   a report is the owner's setting, not the model's choice. Anything else is
   refused without sending.
 - `--md` / `--md-file` — markdown content (`--md-file -` reads stdin).

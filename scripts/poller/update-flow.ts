@@ -15,7 +15,7 @@ import { createVersionStore, updateRunning } from "../lib/version-store.ts";
 import { writeFileAtomic } from "#lib/fs-atomic.ts";
 import { getLang, tr } from "#lib/i18n.ts";
 import {
-  ALLOWED,
+  OWNERS,
   DATA_DIR,
   ENV_PATH,
   NODE,
@@ -291,7 +291,7 @@ export async function handleUpdateCallback(
     return false;
   }
   if (from === null) return false;
-  if (ALLOWED.size === 0 || !ALLOWED.has(from)) return true; // explicit terminal drop for a known untrusted sender
+  if (!OWNERS.has(from)) return true;
   if (parsed.action === "skip") {
     const edited = await edit(
       chatId as string | number,

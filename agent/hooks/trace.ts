@@ -1,6 +1,7 @@
 import { defineHook, type HookContext } from "eve/hooks";
 import { appendTrace } from "../lib/trace.js";
 import { parentTurnId, subagentTurnId } from "../lib/usage.js";
+import { operationalTenantId } from "../lib/tenant-session.js";
 
 // Журнал хода, часть eve: ОДИН хук на подстановочное событие `*` пишет каждый шаг модели,
 // каждый вызов тула и каждый терминальный исход в data/trace/YYYY-MM-DD.jsonl (ADR-0010).
@@ -134,6 +135,7 @@ function record(
   const data = isRecord(event.data) ? event.data : {};
   const projected = project(data);
   appendTrace({
+    tenantId: operationalTenantId(ctx),
     kind: "eve",
     name: event.type,
     turn: subagent

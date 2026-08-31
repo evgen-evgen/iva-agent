@@ -191,11 +191,11 @@ test("notification target prefers digest chat and falls back to the first truste
   assert.equal(
     notificationChat({
       TELEGRAM_DIGEST_CHAT_ID: "99",
-      TELEGRAM_ALLOWED_USER_IDS: "1,2",
+      TELEGRAM_OWNER_USER_IDS: "1,2",
     }),
     "99",
   );
-  assert.equal(notificationChat({ TELEGRAM_ALLOWED_USER_IDS: " 1, 2" }), "1");
+  assert.equal(notificationChat({ TELEGRAM_OWNER_USER_IDS: " 1, 2" }), "1");
   assert.equal(notificationChat({}), "");
 });
 
@@ -372,7 +372,7 @@ test("daily check is silent without config, without a release, or during an upda
     "not-configured",
   );
 
-  const env = { TELEGRAM_BOT_TOKEN: "token", TELEGRAM_ALLOWED_USER_IDS: "1" };
+  const env = { TELEGRAM_BOT_TOKEN: "token", TELEGRAM_OWNER_USER_IDS: "1" };
   const current = await runDailyUpdateCheck({
     root,
     env,
@@ -476,7 +476,7 @@ test("on the versioned layout the daily check reads the mirror and names the ins
   const result = await runDailyUpdateCheck({
     // The units run from `current`, which is where the check starts too.
     root: join(home, "current"),
-    env: { TELEGRAM_BOT_TOKEN: "token", TELEGRAM_ALLOWED_USER_IDS: "1" },
+    env: { TELEGRAM_BOT_TOKEN: "token", TELEGRAM_OWNER_USER_IDS: "1" },
     inspectImpl: async (options) => {
       asked.push(options);
       return { hasVersionUpdate: false };
@@ -494,7 +494,7 @@ test("on the versioned layout the daily check reads the mirror and names the ins
   const sent: UpdateOfferRequest[] = [];
   const notified = await runDailyUpdateCheck({
     root: join(home, "current"),
-    env: { TELEGRAM_BOT_TOKEN: "token", TELEGRAM_ALLOWED_USER_IDS: "1" },
+    env: { TELEGRAM_BOT_TOKEN: "token", TELEGRAM_OWNER_USER_IDS: "1" },
     inspectImpl: async () => ({
       hasVersionUpdate: true,
       localVersion: "0.3.15",

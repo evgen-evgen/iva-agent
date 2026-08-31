@@ -532,19 +532,18 @@ export function materializeQueueItem(
 ): TelegramQueueUpdate | null {
   if (item.update) return cloneJson(item.update);
   const route = splitChatKey(chatKey);
-  const allowed =
-    legacyAllowedUserIds instanceof Set
-      ? legacyAllowedUserIds
-      : new Set(legacyAllowedUserIds ?? []);
   // The old string[] format did not retain a sender. A private Telegram chat id
-  // is also its participant's user id, so an allowlisted private route is the
-  // only legacy item whose author can be reconstructed. A group/topic key says
+  // is also its participant's user id, so a positive private route is the only
+  // legacy item whose author can be reconstructed. A group/topic key says
   // nothing about which member wrote the text and must stay undelivered.
   if (
     !route ||
     typeof route.chatId !== "number" ||
     route.chatId <= 0 ||
-    !allowed.has(String(route.chatId))
+    (legacyAllowedUserIds != null &&
+      !(legacyAllowedUserIds instanceof Set
+        ? legacyAllowedUserIds
+        : new Set(legacyAllowedUserIds)).has(String(route.chatId)))
   ) {
     return null;
   }
@@ -745,7 +744,7 @@ export function shouldQueueBusyUpdate(
       ? allowedUserIds
       : new Set(allowedUserIds ?? []);
   const from = String(message.from?.id ?? "");
-  if (!allowed.size || !allowed.has(from)) return false;
+  if (allowedUserIds != null && (!allowed.size || !allowed.has(from))) return false;
   if (message.chat?.type === "private") return true;
   if (message.chat?.type === "channel") return false;
   if (isReplyToBot(message)) return true;

@@ -620,7 +620,9 @@ async function nightlyEntrypoint(
   const body = await readFile(join(unitDir, unit), "utf8");
   const execStart = body.match(/^ExecStart=(.*)$/m);
   assert.ok(execStart, `${unit} has no ExecStart: ${body}`);
-  return execStart[1].trim().split(/\s+/).at(-1) as string;
+  const script = execStart[1].match(/scripts\/memory\/[a-z-]+\.ts/u);
+  assert.ok(script, `${unit} has no memory script: ${execStart[1]}`);
+  return script[0];
 }
 
 // At no point may a run leave the install with zero nightly units on disk.
@@ -833,7 +835,7 @@ void test("an update interrupted before deploy/ carries iva-brain.service keeps 
     unitDir,
     "iva-memory-doctor.service",
   );
-  assert.equal(entrypoint, "scripts/memory/brain.ts");
+  assert.equal(entrypoint, "scripts/memory/tenants.ts");
   assert.equal(existsSync(join(project, entrypoint)), true);
 });
 
@@ -915,8 +917,8 @@ void test("a legacy nightly unit kept by an interrupted update still names a scr
     true,
     `the kept unit runs ${entrypoint}, which this tree does not ship`,
   );
-  assert.equal(entrypoint, "scripts/memory/brain.ts");
-  assert.match(output, /repointed at scripts\/memory\/brain\.ts/);
+  assert.equal(entrypoint, "scripts/memory/tenants.ts");
+  assert.match(output, /repointed at scripts\/memory\/tenants\.ts brain/);
 });
 
 void test("a legacy nightly unit kept because the new timer stayed down is repointed too", async (t) => {
@@ -934,7 +936,7 @@ void test("a legacy nightly unit kept because the new timer stayed down is repoi
     unitDir,
     "iva-memory-doctor.service",
   );
-  assert.equal(entrypoint, "scripts/memory/brain.ts");
+  assert.equal(entrypoint, "scripts/memory/tenants.ts");
   assert.equal(existsSync(join(project, entrypoint)), true);
 });
 
@@ -962,7 +964,10 @@ void test("repointing a kept legacy unit is idempotent and leaves the rest of th
   assert.equal(second, first, "a second run rewrites nothing");
   assert.equal(
     first,
-    before.replaceAll("scripts/memory/doctor.ts", "scripts/memory/brain.ts"),
+    before.replaceAll(
+      "scripts/memory/doctor.ts",
+      "scripts/memory/tenants.ts brain",
+    ),
     "only the entrypoint changes — flock, TimeoutStartSec, WorkingDirectory stay",
   );
 });

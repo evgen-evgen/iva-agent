@@ -17,12 +17,34 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ToolContext } from "eve/tools";
+import { tenantContextFromSession } from "../agent/lib/tenant-session.ts";
+import { TenantStore } from "../agent/lib/tenant-store.ts";
+import { TenantRegistry } from "../agent/lib/tenant-registry.ts";
+import { reconcileTelegramTenants } from "../agent/lib/telegram-tenant-provisioning.ts";
 import { settled } from "./fixtures/tool-result.ts";
 
-const VAULT = mkdtempSync(join(tmpdir(), "iva-paths-"));
-process.env.ASSISTANT_VAULT_DIR = VAULT;
+const DATA = mkdtempSync(join(tmpdir(), "iva-paths-"));
+process.env.ASSISTANT_DATA_DIR = DATA;
+process.env.TELEGRAM_ALLOWED_USER_IDS = "101";
+process.env.TELEGRAM_OWNER_USER_IDS = "101";
+const principal = {
+  attributes: {},
+  authenticator: "telegram-bot",
+  issuer: "telegram",
+  principalId: "telegram:101",
+  principalType: "user",
+} as const;
+const tenantSession = {
+  session: { auth: { current: principal, initiator: principal } },
+};
+const registry = new TenantRegistry(join(DATA, "tenants.sqlite"));
+reconcileTelegramTenants(registry);
+registry.close();
+const tenant = tenantContextFromSession(tenantSession);
+new TenantStore(tenant).close();
+const VAULT = tenant.vaultRoot;
 mkdirSync(join(VAULT, "cards", "contacts"), { recursive: true });
-process.on("exit", () => rmSync(VAULT, { recursive: true, force: true }));
+process.on("exit", () => rmSync(DATA, { recursive: true, force: true }));
 
 const CARD = join(VAULT, "cards", "contacts", "ivan.md");
 writeFileSync(
@@ -47,7 +69,7 @@ function testToolContext(toolName: string): ToolContext {
     toolName,
     session: {
       id: "vault-tools-paths",
-      auth: { current: null, initiator: null },
+      auth: { current: principal, initiator: principal },
       turn: { id: "vault-tools-paths", sequence: 0 },
     },
     getSandbox: () => Promise.reject(new Error("not used by this test")),
@@ -60,7 +82,7 @@ function testToolContext(toolName: string): ToolContext {
 test("write_file отказывается перезаписать существующую карточку в cards/", async () => {
   const res = settled(
     await writeFile.execute(
-      { path: CARD, content: "затёрто" },
+      { path: "cards/contacts/ivan.md", content: "затёрто" },
       testToolContext("write_file"),
     ),
   );
@@ -77,7 +99,7 @@ test("write_file создаёт НОВЫЙ файл в cards/ как обычн�
   const fresh = join(VAULT, "cards", "contacts", "новый.md");
   const res = settled(
     await writeFile.execute(
-      { path: fresh, content: "# Новый\n" },
+      { path: "cards/contacts/новый.md", content: "# Новый\n" },
       testToolContext("write_file"),
     ),
   );
@@ -90,7 +112,7 @@ test("write_file по-прежнему пишет vault/CORE.md (см. instructi
   const res = settled(
     await writeFile.execute(
       {
-        path: core,
+        path: "CORE.md",
         content: "# CORE\n- факт\n",
       },
       testToolContext("write_file"),
@@ -123,20 +145,19 @@ test("путь из memory_search открывается read_file без ENOENT
   assert.ok(read.content.includes("Кинолаб"));
 });
 
-test("read_file принимает и абсолютный путь", async () => {
-  const read = settled(
-    await readFileTool.execute({ path: CARD }, testToolContext("read_file")),
+test("read_file отклоняет абсолютный путь без раскрытия существования", async () => {
+  await assert.rejects(
+    async () =>
+      await readFileTool.execute({ path: CARD }, testToolContext("read_file")),
+    /Path is outside the tenant storage boundary/u,
   );
-  assert.ok(read.content.includes("Иван Петров"));
 });
 
 // Инструкции не должны давать read_file путь с префиксом `vault/`: тул резолвит
 // относительный путь ОТ корня vault, поэтому `vault/daily/x.md` превращается в
 // vault/vault/daily/x.md и падает с ENOENT (#199). Шелл-примеры (ls, grep, uv run) и
-// write_file — исключение: они работают от корня проекта, а не от корня vault.
-// Скиллы (agent/skills) сюда не входят намеренно: они гоняют шелл-утилиты и получают от
-// Telegram ХОСТОВЫЙ путь вложения (`vault/attachments/…`, см. lib/telegram-media.ts) —
-// там префикс правильный. Контракт read_file живёт в инструкциях и ночных промптах.
+// write_file — исключение только для имени инструмента в тексте. Контракт read_file
+// живёт в инструкциях и ночных промптах.
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
 const INSTRUCTION_ROOTS = ["agent/instructions", "scripts/memory/instructions"];
 const VAULT_PREFIXED =

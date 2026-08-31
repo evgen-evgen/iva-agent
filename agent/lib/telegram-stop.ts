@@ -12,11 +12,10 @@
 
 import { requestTelegramCancel } from "./telegram-cancel-client.ts";
 import { localCancelUrl } from "./telegram-cancel-route.ts";
-import { allowedTelegramUsers } from "./telegram-allowlist.ts";
 import { chatKeyOf, getChatStatus, isRunning } from "./run-status.ts";
 import { toChannelLocalToken } from "./telegram-continuation-token.ts";
 import { tr } from "./i18n.ts";
-import { isPrivateTelegramChat } from "./telegram-private-chat.ts";
+import { isPrivateTelegramActor } from "./telegram-private-chat.ts";
 import { traceStop } from "./trace.ts";
 
 export type StopOutcome = "requested" | "idle" | "failed";
@@ -124,12 +123,13 @@ export async function handleTelegramStopCallback(
   query: StopCallbackQuery,
   {
     ackImpl,
-    allowedImpl = allowedTelegramUsers,
+    allowedImpl: _deprecatedAllowedImpl,
     urlImpl = localCancelUrl,
     secret = process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN,
     ...cancelDeps
   }: {
     ackImpl: (text?: string) => Promise<unknown>;
+    /** Deprecated: all authenticated private users may stop their own turn. */
     allowedImpl?: () => ReadonlySet<string>;
     urlImpl?: () => string;
     secret?: string;
@@ -139,19 +139,14 @@ export async function handleTelegramStopCallback(
     logImpl?: (...parts: unknown[]) => void;
   },
 ): Promise<StopOutcome | "ignored"> {
+  void _deprecatedAllowedImpl;
   const from = query.from?.id;
-  const allowed = allowedImpl();
   const reference = query.message;
-  if (
-    allowed.size === 0 ||
-    from === undefined ||
-    !allowed.has(String(from)) ||
-    !reference
-  ) {
+  if (from === undefined || !reference) {
     await ackImpl();
     return "ignored";
   }
-  if (!isPrivateTelegramChat(reference.chat)) {
+  if (!isPrivateTelegramActor(reference.chat, from)) {
     await ackImpl(
       tr(
         "Open a private chat with me to use this control.",

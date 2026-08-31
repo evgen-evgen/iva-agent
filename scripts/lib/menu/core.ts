@@ -19,6 +19,7 @@ import {
   readInterviewRecovery,
 } from "../core-interview.ts";
 import { isRunning, chatKeyOf } from "#lib/run-status.ts";
+import { resolveTelegramTenantForUserId } from "#lib/telegram-tenant-resolver.ts";
 
 const SID = "core";
 const PARENT = "r";
@@ -87,9 +88,8 @@ function errorMessage(error: unknown): string {
   return (error as { readonly message: string }).message;
 }
 
-function vaultDir() {
-  const raw = process.env.ASSISTANT_VAULT_DIR ?? "vault";
-  return raw.startsWith("/") ? raw : join(process.cwd(), raw);
+function vaultDir(userId: string) {
+  return resolveTelegramTenantForUserId(userId).vaultRoot;
 }
 
 function identityId(value: unknown, fallback: string | number): string {
@@ -196,7 +196,10 @@ function recoveryRecord(
 async function readMatchingRecovery(
   source: CallbackIdentity,
 ): Promise<RecoveryRecord | null> {
-  return recoveryRecord(await readInterviewRecovery(vaultDir()), source);
+  return recoveryRecord(
+    await readInterviewRecovery(vaultDir(source.userId)),
+    source,
+  );
 }
 
 async function admitOrRetry(update: SyntheticUpdate, ctx: MenuContext) {
@@ -208,9 +211,11 @@ async function admitOrRetry(update: SyntheticUpdate, ctx: MenuContext) {
   }
 }
 
-async function coreExcerpt() {
+async function coreExcerpt(userId: string) {
   try {
-    const text = (await readFile(join(vaultDir(), "CORE.md"), "utf8")).trim();
+    const text = (
+      await readFile(join(vaultDir(userId), "CORE.md"), "utf8")
+    ).trim();
     if (!text) return null;
     return text.length > EXCERPT_LIMIT
       ? `${text.slice(0, EXCERPT_LIMIT).trimEnd()}…`
@@ -317,7 +322,7 @@ async function finish(
     ? { version: 1, source, update }
     : undefined;
   try {
-    await saveInterview(vaultDir(), qa, record);
+    await saveInterview(vaultDir(st.userId), qa, record);
   } catch (error) {
     const message = errorMessage(error);
     return ctx.flows.screen(
@@ -372,7 +377,7 @@ export default {
   parent: PARENT,
 
   async render(st: MenuState, ctx: MenuContext) {
-    const excerpt = await coreExcerpt();
+    const excerpt = await coreExcerpt(st.userId);
     const head = ctx.tr("💾 Memory core", "💾 Ядро памяти");
     const body = excerpt
       ? `${ctx.tr("Current core:", "Текущее ядро:")}\n\n${excerpt}`

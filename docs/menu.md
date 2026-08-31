@@ -2,7 +2,7 @@
 
 `/menu` opens one Telegram message with a nested inline keyboard that gathers **every** Iva setting in one place — model, web search, language, a character test, a memory interview, the personal userbot, Google Workspace, timers, skills and a live status card. It exists because configuring an agent by hand — editing `.env`, running CLI wizards, pasting keys over SSH — is exactly where people get stuck.
 
-The menu lives in the long-poll bridge, not the agent. That has three consequences: it **works while Iva is mid-turn** (out-of-band — nothing is queued behind a running reply), it **costs zero model tokens** (the one exception is the memory interview, which hands your answers to Iva to distill), and deploying a change to it is a bridge restart, not a rebuild. Only user IDs on the allowlist can open it; taps from anyone else are silently dropped. Everything is bilingual (ru/en) and follows the **🌐 Language** button live.
+The menu lives in the long-poll bridge, not the agent. That has three consequences: it **works while Iva is mid-turn** (out-of-band — nothing is queued behind a running reply), it **costs zero model tokens** (the one exception is the memory interview, which hands your answers to Iva to distill), and deploying a change to it is a bridge restart, not a rebuild. Any private tenant can open the user menu; owner-only screens are hidden and rejected for ordinary users. Everything is bilingual (ru/en) and follows the **🌐 Language** button live.
 
 ## The map
 
