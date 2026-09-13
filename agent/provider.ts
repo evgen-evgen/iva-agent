@@ -35,6 +35,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 // окно контекста.
 const selected = resolveModelProvider();
 const PROVIDER = selected.name;
+// Evals may isolate ASSISTANT_DATA_DIR while deliberately reusing only the owner's
+// Codex login. Keep this seam auth-specific: traces, sessions and every other runtime
+// file still follow the isolated data directory.
+const CODEX_AUTH_DATA_DIR =
+  process.env.IVA_CODEX_AUTH_DATA_DIR?.trim() || undefined;
 
 // Читается ровно в одном месте — PROVIDERS[PROVIDER] ниже, поэтому запись выбранного
 // провайдера в поле соседа невозможна. satisfies держит таблицу полной.
@@ -110,7 +115,9 @@ export const compatibleThinkingEffort: CompatibleEffort | undefined =
 // историю eve шлёт целиком каждый ход. Тело патчим здесь же (точка правки, если бэкенд строже).
 const codexFetch: typeof fetch = async (input, init) => {
   const headers = new Headers(init?.headers);
-  for (const [k, v] of Object.entries(await codexAuthHeaders()))
+  for (const [k, v] of Object.entries(
+    await codexAuthHeaders(CODEX_AUTH_DATA_DIR),
+  ))
     headers.set(k, v);
   let body = init?.body;
   if (

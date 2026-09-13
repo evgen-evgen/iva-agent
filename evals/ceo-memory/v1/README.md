@@ -43,6 +43,18 @@ vault, data directory, local server, and bearer token. It removes Telegram crede
 from the benchmark process and disables answer transcript writes. It never opens or edits
 the live vault.
 
+When `MODEL_PROVIDER=codex`, the isolated server still needs the OAuth login of the
+working Iva installation. If `data/codex-auth.json` belongs to another checkout, point
+only the auth seam at that installation (the token is not copied into benchmark output):
+
+```bash
+IVA_CODEX_AUTH_DATA_DIR=/path/to/working-iva/data \
+  npm run eval:ceo-memory -- --mode stock
+```
+
+If neither location contains `codex-auth.json`, run `iva login` first. The benchmark
+fails immediately with the expected path instead of waiting for the rollup timeout.
+
 Start with the stock run:
 
 ```bash

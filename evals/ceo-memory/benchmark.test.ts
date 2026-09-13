@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-floating-promises -- Node's test runner owns registrations. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { deepMerge, parseArgs } from "./benchmark.ts";
+import { deepMerge, parseArgs, resolveCodexAuthDataDir } from "./benchmark.ts";
 
 test("benchmark CLI defaults to a safe single stock run", () => {
   assert.deepEqual(parseArgs([]), {
@@ -51,4 +51,21 @@ test("schema overlay merges maps without dropping stock card types", () => {
     "contact",
     "commitment",
   ]);
+});
+
+test("Codex auth can come from the live Iva data dir without sharing eval state", () => {
+  assert.equal(
+    resolveCodexAuthDataDir({ ASSISTANT_DATA_DIR: "data" }, "/srv/iva-agent"),
+    "/srv/iva-agent/data",
+  );
+  assert.equal(
+    resolveCodexAuthDataDir(
+      {
+        ASSISTANT_DATA_DIR: "data",
+        IVA_CODEX_AUTH_DATA_DIR: "/srv/live-iva/data",
+      },
+      "/srv/iva-agent",
+    ),
+    "/srv/live-iva/data",
+  );
 });

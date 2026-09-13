@@ -67,6 +67,7 @@ const FIXTURE = join(ROOT, "evals", "ceo-memory", "v1");
 const EVE_BIN = join(ROOT, "node_modules", "eve", "bin", "eve.js");
 const TURN_TIMEOUT_MS = 180_000;
 const SERVER_TIMEOUT_MS = 90_000;
+const CODEX_AUTH_DATA_DIR_ENV = "IVA_CODEX_AUTH_DATA_DIR";
 
 export function parseArgs(args: readonly string[]): CliOptions {
   const options: CliOptions = {
@@ -140,6 +141,17 @@ function outputPath(requested?: string): string {
   if (!requested)
     return join(ROOT, "data", "ceo-memory-benchmarks", timestamp());
   return isAbsolute(requested) ? requested : resolve(ROOT, requested);
+}
+
+export function resolveCodexAuthDataDir(
+  env: NodeJS.ProcessEnv,
+  root = ROOT,
+): string {
+  const configured =
+    env[CODEX_AUTH_DATA_DIR_ENV]?.trim() ||
+    env.ASSISTANT_DATA_DIR?.trim() ||
+    "data";
+  return isAbsolute(configured) ? configured : resolve(root, configured);
 }
 
 async function createNewDirectory(path: string): Promise<void> {
@@ -225,6 +237,18 @@ function isolatedEnv({
     "TELEGRAM_WEBHOOK_SECRET_TOKEN",
   ]) {
     delete env[key];
+  }
+
+  if ((env.MODEL_PROVIDER ?? "ollama") === "codex") {
+    const authDataDir = resolveCodexAuthDataDir(process.env);
+    const authFile = join(authDataDir, "codex-auth.json");
+    if (!existsSync(authFile)) {
+      throw new Error(
+        `Codex auth was not found at ${authFile}. Run \`iva login\` in this checkout ` +
+          `or set ${CODEX_AUTH_DATA_DIR_ENV}=/path/to/your/working-iva/data before the benchmark.`,
+      );
+    }
+    env[CODEX_AUTH_DATA_DIR_ENV] = authDataDir;
   }
   return env;
 }
