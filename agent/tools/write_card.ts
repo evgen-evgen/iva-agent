@@ -11,7 +11,7 @@ import {
   resolveOperation,
 } from "../lib/card-store.js";
 import { parseFrontmatter } from "../lib/frontmatter.js";
-import { resolveTimeZone } from "../lib/timezone.js";
+import { memoryWriteDate } from "../lib/memory-date.ts";
 
 // Строго типизированная запись карточки памяти. Заменяет «write_file по наитию» для карточек:
 // zod-enum на type/status берётся из autograph schema.json (единый источник правды), поэтому
@@ -20,8 +20,9 @@ import { resolveTimeZone } from "../lib/timezone.js";
 
 const VAULT = () => process.env.ASSISTANT_VAULT_DIR || "vault";
 
-// Типы карточек, которые модель создаёт интерактивно (summary-типы пишет ночной rollup, не тул).
-const CARD_TYPE_DIR: Record<string, string> = {
+// Типы старого vault до появления schema-owned card_type_dirs. Новые типы не добавляются
+// сюда: schema.json — источник правды, а этот список только сохраняет совместимость.
+const FALLBACK_CARD_TYPE_DIR: Record<string, string> = {
   contact: "contacts",
   project: "projects",
   decision: "decisions",
@@ -109,10 +110,12 @@ function schemaPath(): string {
 function loadSchema(): {
   status: Record<string, string[]>;
   aliases: Record<string, string>;
+  cardTypeDir: Record<string, string>;
 } {
   const fallback: {
     status: Record<string, string[]>;
     aliases: Record<string, string>;
+    cardTypeDir: Record<string, string>;
   } = {
     status: {
       contact: ["active", "inactive"],
@@ -127,6 +130,7 @@ function loadSchema(): {
       thought: "note",
       proposal: "idea",
     },
+    cardTypeDir: FALLBACK_CARD_TYPE_DIR,
   };
   try {
     const raw = readFileSync(schemaPath(), "utf8");
@@ -135,8 +139,21 @@ function loadSchema(): {
     const nodeTypes = isRecord(parsed.node_types)
       ? parsed.node_types
       : undefined;
+    const explicitDirs = asStringRecord(parsed.card_type_dirs);
+    const pathHints = asStringRecord(parsed.path_type_hints);
+    const derivedDirs: Record<string, string> = {};
+    for (const [prefix, type] of Object.entries(pathHints ?? {})) {
+      const match = /^cards\/([^/]+)\/$/.exec(prefix);
+      if (match && isRecord(nodeTypes?.[type])) derivedDirs[type] = match[1];
+    }
+    const configuredDirs = explicitDirs ?? derivedDirs;
+    const cardTypeDir =
+      Object.keys(configuredDirs).length > 0
+        ? configuredDirs
+        : fallback.cardTypeDir;
+
     const status: Record<string, string[]> = {};
-    for (const t of Object.keys(CARD_TYPE_DIR)) {
+    for (const t of Object.keys(cardTypeDir)) {
       const node = nodeTypes?.[t];
       const configured = isRecord(node)
         ? isStringArray(node.status)
@@ -150,6 +167,7 @@ function loadSchema(): {
     return {
       status,
       aliases: asStringRecord(parsed.type_aliases) ?? fallback.aliases,
+      cardTypeDir,
     };
   } catch {
     return fallback;
@@ -157,6 +175,9 @@ function loadSchema(): {
 }
 
 const SCHEMA = loadSchema();
+// Типы карточек, которые модель создаёт интерактивно. Summary-типы не попадают сюда:
+// их пути не объявлены в schema.card_type_dirs / cards/* path hints.
+const CARD_TYPE_DIR = SCHEMA.cardTypeDir;
 const CARD_TYPES = Object.keys(CARD_TYPE_DIR) as [string, ...string[]];
 
 // Алиасы типов из схемы применяются ДО валидации: описание поля обещает person/company →
@@ -168,16 +189,6 @@ function normalizeType(v: unknown): unknown {
   if (k in CARD_TYPE_DIR) return k;
   const mapped = SCHEMA.aliases[k];
   return mapped && mapped in CARD_TYPE_DIR ? mapped : k;
-}
-
-// Транслитерация не нужна — vault хранит кириллические слаги нормально (см. существующие карточки).
-function today(): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: resolveTimeZone(process.env.ASSISTANT_TIMEZONE),
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
 }
 
 export default defineTool({
@@ -385,6 +396,7 @@ export default defineTool({
             "SUPERSEDE требует history_entry; legacy replace_body должен содержать ## History.",
         };
       }
+      const writeDate = memoryWriteDate();
       const { content, action, ignoredHistoryEntry } = mergeCard({
         existing,
         title,
@@ -403,10 +415,13 @@ export default defineTool({
               }),
           ...(domain ? { domain } : {}),
         },
-        initialFields: { created: today(), source: `daily/${today()}.md` },
+        initialFields: {
+          created: writeDate,
+          source: `daily/${writeDate}.md`,
+        },
         body,
         related,
-        date: today(),
+        date: writeDate,
         replaceBody: replace_body === true,
         // Сырая operation: по её отсутствию mergeCard узнаёт легаси-путь replace_body.
         operation,

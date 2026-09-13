@@ -22,6 +22,8 @@
     "digest": "node scripts/daily-digest.ts",
     "poll": "node --env-file=.env scripts/telegram-poll.mjs",
     "memory": "node --env-file=.env scripts/memory/rollup.ts",
+    "eval:ceo-memory": "node --env-file-if-exists=.env evals/ceo-memory/benchmark.ts",
+    "eval:ceo-memory:validate": "node evals/ceo-memory/validate.ts",
     "brain": "node --env-file=.env scripts/memory/brain.ts",
     "doctor": "npm run brain",
     "typecheck": "tsgo",

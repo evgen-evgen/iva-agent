@@ -1,0 +1,346 @@
+{
+  "scenario_id": "ceo-week-delta",
+  "scoring": { "correct": 2, "partial": 1, "incorrect": 0 },
+  "questions": [
+    {
+      "id": "Q01",
+      "checkpoint": "2026-09-08",
+      "category": "current_truth",
+      "prompt": "Когда NordSupply теперь должен передать доступ к API?",
+      "expected": {
+        "required_claims": ["Новый срок — пятница, 11 сентября, до 10:00"],
+        "forbidden_claims": [
+          "Среда, 9 сентября, 12:00 остаётся текущим сроком"
+        ],
+        "source_refs": ["D1-E04", "D2-E01"]
+      },
+      "critical": true
+    },
+    {
+      "id": "Q02",
+      "checkpoint": "2026-09-08",
+      "category": "commitments",
+      "prompt": "Марина просрочила отправку КП для Acme?",
+      "expected": {
+        "required_claims": [
+          "Нет",
+          "КП отправлено 8 сентября в 16:42 до срока 17:00"
+        ],
+        "forbidden_claims": [
+          "Обязательство остаётся открытым",
+          "КП просрочено"
+        ],
+        "source_refs": ["D1-E03", "D2-E06"]
+      },
+      "critical": true
+    },
+    {
+      "id": "Q03",
+      "checkpoint": "2026-09-08",
+      "category": "provenance",
+      "prompt": "Мы уже решили зафиксировать цену Acme на 30 дней?",
+      "expected": {
+        "required_claims": ["Нет, решение ещё ожидает проверки маржи Олегом"],
+        "forbidden_claims": [
+          "Цена уже зафиксирована",
+          "В фиксации цены окончательно отказано"
+        ],
+        "source_refs": ["D2-E03", "D2-E04", "D2-E05"]
+      },
+      "critical": true
+    },
+    {
+      "id": "Q04",
+      "checkpoint": "2026-09-09",
+      "category": "current_truth",
+      "prompt": "Какое решение сейчас принято по цене для Acme?",
+      "expected": {
+        "required_claims": ["Фиксировать цену на 30 дней"],
+        "source_refs": ["D3-E01"]
+      },
+      "critical": false
+    },
+    {
+      "id": "Q05",
+      "checkpoint": "2026-09-09",
+      "category": "temporal_history",
+      "prompt": "Когда Олег теперь должен прислать cash-flow и какой срок был раньше?",
+      "expected": {
+        "required_claims": [
+          "Текущий срок — пятница, 11 сентября, до 14:00",
+          "Предыдущий срок — четверг, 10 сентября, конец дня"
+        ],
+        "source_refs": ["D1-E05", "D3-E02"]
+      },
+      "critical": false
+    },
+    {
+      "id": "Q06",
+      "checkpoint": "2026-09-09",
+      "category": "entity_linking",
+      "prompt": "Иван Соколов из Acme — это тот же Иван, который отвечает за Delta?",
+      "expected": {
+        "required_claims": [
+          "Нет",
+          "За Delta отвечает Иван Петров",
+          "Иван Соколов — аналитик Acme"
+        ],
+        "forbidden_claims": [
+          "Иван Соколов отвечает за Delta",
+          "Это один человек"
+        ],
+        "source_refs": ["D1-E01", "D3-E04"]
+      },
+      "critical": true
+    },
+    {
+      "id": "Q07",
+      "checkpoint": "2026-09-10",
+      "category": "current_truth",
+      "prompt": "Какая сейчас утверждённая дата запуска Delta?",
+      "expected": {
+        "required_claims": ["25 сентября 2026 года"],
+        "forbidden_claims": ["18 сентября — текущая дата"],
+        "source_refs": ["D4-E01", "D4-E02"]
+      },
+      "critical": true
+    },
+    {
+      "id": "Q08",
+      "checkpoint": "2026-09-10",
+      "category": "temporal_history",
+      "prompt": "Почему и когда поменяли дату запуска Delta?",
+      "expected": {
+        "required_claims": [
+          "Перенесли с 18 на 25 сентября",
+          "Причины: задержка API NordSupply и неделя на стабилизацию",
+          "Решение зафиксировано 10 сентября"
+        ],
+        "source_refs": ["D1-E02", "D4-E01"]
+      },
+      "critical": false
+    },
+    {
+      "id": "Q09",
+      "checkpoint": "2026-09-10",
+      "category": "precision",
+      "prompt": "Мы уже решили подключить резервного поставщика API?",
+      "expected": {
+        "required_claims": ["Нет, это открытый вопрос"],
+        "forbidden_claims": [
+          "Решение подключить второго поставщика принято",
+          "NordSupply решено заменить"
+        ],
+        "source_refs": ["D4-E04"]
+      },
+      "critical": true
+    },
+    {
+      "id": "Q10",
+      "checkpoint": "final",
+      "category": "current_truth",
+      "prompt": "Что сейчас происходит с Delta? Дай короткий статус для CEO.",
+      "expected": {
+        "required_claims": [
+          "Запуск 25 сентября",
+          "Владелец Иван Петров",
+          "API получен и проверен",
+          "Cash-flow готов",
+          "Открыто обязательство Марины по договору Acme до 14 сентября 16:00"
+        ],
+        "forbidden_claims": [
+          "API всё ещё блокирует проект",
+          "Запуск 18 сентября",
+          "Cash-flow просрочен"
+        ],
+        "source_refs": ["D4-E01", "D5-E02", "D5-E03", "D5-E04"]
+      },
+      "critical": true
+    },
+    {
+      "id": "Q11",
+      "checkpoint": "final",
+      "category": "current_truth",
+      "prompt": "Когда сейчас запускаем Delta?",
+      "expected": {
+        "required_claims": ["25 сентября 2026 года"],
+        "forbidden_claims": ["18 сентября"],
+        "source_refs": ["D4-E01", "D4-E02", "D5-E04"]
+      },
+      "critical": true
+    },
+    {
+      "id": "Q12",
+      "checkpoint": "final",
+      "category": "temporal_history",
+      "prompt": "Какая дата запуска была раньше и почему она изменилась?",
+      "expected": {
+        "required_claims": [
+          "Раньше было 18 сентября",
+          "Стало 25 сентября",
+          "Задержка API и неделя на стабилизацию"
+        ],
+        "source_refs": ["D1-E02", "D4-E01"]
+      },
+      "critical": false
+    },
+    {
+      "id": "Q13",
+      "checkpoint": "final",
+      "category": "commitments",
+      "prompt": "Какие обязательства сейчас ещё открыты?",
+      "expected": {
+        "required_claims": [
+          "Марина должна отправить Acme договор 14 сентября до 16:00"
+        ],
+        "forbidden_claims": [
+          "Иван ещё должен получить API",
+          "Олег ещё должен cash-flow",
+          "Марина ещё должна отправить КП"
+        ],
+        "source_refs": ["D5-E04"]
+      },
+      "critical": true
+    },
+    {
+      "id": "Q14",
+      "checkpoint": "final",
+      "category": "commitments",
+      "prompt": "Что Иван Петров обещал по Delta и выполнил ли он это?",
+      "expected": {
+        "required_claims": [
+          "Обещал получить рабочий доступ к API",
+          "Выполнено 11 сентября: доступ проверен и работает"
+        ],
+        "source_refs": ["D1-E04", "D5-E02"]
+      },
+      "critical": false
+    },
+    {
+      "id": "Q15",
+      "checkpoint": "final",
+      "category": "commitments",
+      "prompt": "Какие обязательства Марины уже выполнены, а какие ещё открыты?",
+      "expected": {
+        "required_claims": [
+          "КП отправлено 8 сентября в срок",
+          "Договор Acme остаётся открытым до 14 сентября 16:00"
+        ],
+        "source_refs": ["D2-E06", "D5-E04"]
+      },
+      "critical": false
+    },
+    {
+      "id": "Q16",
+      "checkpoint": "final",
+      "category": "commitments",
+      "prompt": "Есть ли у Олега просроченное обязательство по cash-flow?",
+      "expected": {
+        "required_claims": [
+          "Нет",
+          "Он отправил прогноз 11 сентября в 13:30 до нового срока 14:00"
+        ],
+        "forbidden_claims": ["Cash-flow просрочен", "Cash-flow всё ещё открыт"],
+        "source_refs": ["D3-E02", "D5-E03"]
+      },
+      "critical": true
+    },
+    {
+      "id": "Q17",
+      "checkpoint": "final",
+      "category": "current_truth",
+      "prompt": "API NordSupply всё ещё блокирует Delta?",
+      "expected": {
+        "required_claims": [
+          "Нет",
+          "Credentials получены и Иван проверил рабочий доступ"
+        ],
+        "forbidden_claims": ["Доступ всё ещё ожидается"],
+        "source_refs": ["D5-E01", "D5-E02"]
+      },
+      "critical": true
+    },
+    {
+      "id": "Q18",
+      "checkpoint": "final",
+      "category": "temporal_history",
+      "prompt": "Раз API уже получен, дата запуска вернулась на 18 сентября?",
+      "expected": {
+        "required_claims": ["Нет", "Дата остаётся 25 сентября"],
+        "forbidden_claims": ["Да, запуск снова 18 сентября"],
+        "source_refs": ["D4-E02", "D5-E04"]
+      },
+      "critical": true
+    },
+    {
+      "id": "Q19",
+      "checkpoint": "final",
+      "category": "provenance",
+      "prompt": "Мы считаем NordSupply ненадёжным поставщиком? Это факт или предположение?",
+      "expected": {
+        "required_claims": [
+          "Это не утверждённый факт и не решение CEO",
+          "Было только предположение Ивы о повышенном риске"
+        ],
+        "forbidden_claims": [
+          "CEO признал NordSupply ненадёжным",
+          "Решено прекратить работу с NordSupply"
+        ],
+        "source_refs": ["D2-E02", "D3-E05", "D3-E06"]
+      },
+      "critical": true
+    },
+    {
+      "id": "Q20",
+      "checkpoint": "final",
+      "category": "entity_linking",
+      "prompt": "Кто из двух Иванов связан с управлением Delta, а кто представляет Acme?",
+      "expected": {
+        "required_claims": [
+          "Иван Петров — COO и владелец Delta",
+          "Иван Соколов — аналитик Acme"
+        ],
+        "source_refs": ["D1-E01", "D3-E04"]
+      },
+      "critical": true
+    },
+    {
+      "id": "Q21",
+      "checkpoint": "final",
+      "category": "precision",
+      "prompt": "Какое решение принято по второму поставщику?",
+      "expected": {
+        "required_claims": [
+          "Не подключать сейчас",
+          "Изучение вариантов допустимо, но решения о смене или новом контракте нет"
+        ],
+        "forbidden_claims": [
+          "Второго поставщика решили подключить",
+          "NordSupply решили заменить"
+        ],
+        "source_refs": ["D4-E04", "D5-E05"]
+      },
+      "critical": true
+    },
+    {
+      "id": "Q22",
+      "checkpoint": "final",
+      "category": "precision",
+      "prompt": "Что из этой недели сейчас действительно требует вмешательства CEO?",
+      "expected": {
+        "required_claims": [
+          "Явного активного блокера для вмешательства CEO нет",
+          "Нужно контролировать договор Acme до 14 сентября 16:00",
+          "Вопрос резервного поставщика остаётся идеей, а не срочным решением"
+        ],
+        "forbidden_claims": [
+          "Нужно срочно разблокировать API",
+          "Нужно добиваться cash-flow",
+          "Нужно разбираться с просроченным КП"
+        ],
+        "source_refs": ["D5-E02", "D5-E03", "D5-E04", "D5-E05"]
+      },
+      "critical": false
+    }
+  ]
+}

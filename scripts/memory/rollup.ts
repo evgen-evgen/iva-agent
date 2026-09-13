@@ -44,6 +44,7 @@ import {
   sentNotBeforeIso,
 } from "../lib/rollup-stale-cursor.ts";
 import { sendTelegramHtml } from "../lib/telegram-send.ts";
+import { resolveDailyTargetDate, shiftIsoDate } from "./rollup-target-date.ts";
 
 type Period = "daily" | "weekly" | "monthly" | "yearly";
 
@@ -52,7 +53,9 @@ const PERIODS: readonly Period[] = ["daily", "weekly", "monthly", "yearly"];
 const period = process.argv[2] as Period | undefined;
 
 if (!period || !PERIODS.includes(period)) {
-  console.error(`Usage: rollup.ts <${PERIODS.join("|")}>`);
+  console.error(
+    `Usage: rollup.ts <${PERIODS.join("|")}> [--target-date YYYY-MM-DD]`,
+  );
   process.exit(1);
 }
 
@@ -96,16 +99,13 @@ function localDate(): string {
 
 // Shift an ISO date (YYYY-MM-DD) by N days; arithmetic in UTC, no DST edge cases.
 function shiftDate(iso: string, deltaDays: number): string {
-  const [y, m, d] = iso.split("-").map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  dt.setUTCDate(dt.getUTCDate() + deltaDays);
-  return dt.toISOString().slice(0, 10);
+  return shiftIsoDate(iso, deltaDays);
 }
 
 // We take the target period as COMPLETED: schedules fire at the start of a new period
 // (daily ≈04:00, weekly on Mon, monthly on the 1st, yearly on Jan 1), so we process
 // the PREVIOUS period, not the empty current one (now is the current local date).
-function buildPrompt(p: Period, now: string): string {
+function buildPrompt(p: Period, now: string, dailyTarget: string): string {
   const [y, m] = now.split("-").map(Number);
   const yesterday = shiftDate(now, -1);
   const prevMonth =
@@ -126,7 +126,7 @@ function buildPrompt(p: Period, now: string): string {
     case "daily":
       return (
         intro +
-        `Process the raw transcript of the completed day (${VAULT}/daily/${yesterday}.md): ` +
+        `Process the raw transcript of the completed day (${VAULT}/daily/${dailyTarget}.md): ` +
         `extract entities and create/update autograph cards. Prefer the write_card tool over write_file ` +
         `for cards — it enforces the schema. For each fact choose one operation: ADD (new), ` +
         `UPDATE (existing subject, compatible new fact), SUPERSEDE (contradicts the Compiled Truth), ` +
@@ -147,8 +147,8 @@ function buildPrompt(p: Period, now: string): string {
         `keeping — a note card with status: archived. ` +
         `First read ${VAULT}/.graph/supersede-candidates.json (the deterministic conflict scan) and ` +
         `resolve every listed same-entity conflict by superseding the stale card. ` +
-        `Then assemble a daily-summary for ${yesterday} with the day's topics and MOC links down to the cards ` +
-        `and to the raw transcript daily/${yesterday}.md. ` +
+        `Then assemble a daily-summary for ${dailyTarget} with the day's topics and MOC links down to the cards ` +
+        `and to the raw transcript daily/${dailyTarget}.md. ` +
         `Then ${VAULT}/CORE.md, per the ${INSTRUCTIONS}/rules/core-format.md rule. If the day produced ` +
         `no new durable fact, preference, goal or behavioral lesson, do not open or write CORE.md. ` +
         `Otherwise edit only the affected lines; never rewrite the file; keep every existing section, ` +
@@ -352,7 +352,13 @@ function readCoreText(path: string): string {
 }
 
 const today = localDate();
-const yesterday = shiftDate(today, -1);
+let completedDay: string;
+try {
+  completedDay = resolveDailyTargetDate(period, process.argv.slice(3), today);
+} catch (error) {
+  console.error(`rollup ${period}: ${(error as Error).message}`);
+  process.exit(1);
+}
 // Снимок CORE ДО хода: файл правит сама ночь, и пропажу секции видно только сравнением
 // с тем, что было. Читается всегда, даже если ночь CORE не откроет вовсе.
 const coreBeforeTurn = period === "daily" ? readCoreText(CORE_PATH) : "";
@@ -362,7 +368,10 @@ let session = saved ? client.session(saved.state) : client.session();
 // Обход vercel/eve#2461: result() на резюмнутой сессии может вернуть чужой ход.
 // Nonce делает промпт уникальным для этого Rollup; guardedTurn сдвигает курсор
 // на хвост перед каждым send. Снять, когда eve свяжет result() с отправленным ходом.
-const mainPrompt = attachRollupNonce(buildPrompt(period, today), randomUUID());
+const mainPrompt = attachRollupNonce(
+  buildPrompt(period, today, completedDay),
+  randomUUID(),
+);
 let result: MessageResult;
 let sentNotBefore: string;
 let accepted = false;
@@ -511,7 +520,7 @@ if (period === "daily") {
   // Указатель на последний день ведёт код: дата известна точно, а модели тут нечего
   // решать — за неё она платила бы полным перезаписыванием файла. Пишем только если
   // строка реально изменилась, иначе день без новых фактов трогал бы vault впустую.
-  const pointed = setLastDayPointer(core, yesterday);
+  const pointed = setLastDayPointer(core, completedDay);
   if (pointed !== core) {
     writeFileAtomicSync(CORE_PATH, pointed);
     core = pointed;

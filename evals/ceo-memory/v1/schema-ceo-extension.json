@@ -1,0 +1,35 @@
+{
+  "_comment": "Merge overlay for benchmark Run B. write_card reads these schema-configured card types and folders at server startup.",
+  "node_types": {
+    "meeting": {
+      "description": "A scheduled or completed business conversation with participants, outcomes, and source context",
+      "required": ["description", "tags", "status"],
+      "status": ["scheduled", "completed", "cancelled", "superseded"]
+    },
+    "commitment": {
+      "description": "A promise or obligation with an owner, deliverable, lifecycle, and optional due date",
+      "required": ["description", "tags", "status"],
+      "status": ["open", "done", "cancelled", "superseded"]
+    }
+  },
+  "card_type_dirs": {
+    "meeting": "meetings",
+    "commitment": "commitments"
+  },
+  "domain_inference": {
+    "cards/meetings/": "work",
+    "cards/commitments/": "work"
+  },
+  "path_type_hints": {
+    "cards/meetings/": "meeting",
+    "cards/commitments/": "commitment"
+  },
+  "status_order": {
+    "open": 0,
+    "scheduled": 1,
+    "completed": 7,
+    "done": 7,
+    "cancelled": 11,
+    "superseded": 9
+  }
+}

@@ -13,6 +13,12 @@ ones. Most transcript lines stay in the transcript and never become cards.
 | A proposal/hypothesis worth revisiting ("what if…", "idea:")          | `idea`     | `cards/ideas/`     |
 | A durable fact / learning / reference ("turns out…", "TIL", a how-to) | `note`     | `cards/notes/`     |
 
+The table above describes the stock vault. Before classifying, also read
+`schema.json.card_type_dirs`. If the vault defines a more precise type whose description
+matches the fact — for example `meeting` or `commitment` — prefer that type over squeezing
+the fact into a generic `note` or only burying it in a project card. The type, folder, and
+status must still come from the schema; never invent any of them.
+
 ## Stays in the transcript (do NOT card)
 
 - Logistics, scheduling, acknowledgements, transient status.

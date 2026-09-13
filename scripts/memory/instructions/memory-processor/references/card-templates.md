@@ -87,6 +87,14 @@ source: daily/YYYY-MM-DD.md
 Body: what was decided and why, in prose — no `## Decision` / `## Rationale`
 headings, `write_card` refuses a body that carries any.
 
+## Schema-defined extension types
+
+For a type added through `schema.json.card_type_dirs`, use the same generic frontmatter
+contract: `type`, searchable `description`, 2–5 tags, a schema-valid `status`, `created`,
+and `source`. Put domain facts such as owner, due date, participants, and lifecycle in the
+plain body unless the tool contract explicitly exposes them as fields. Do not bypass
+`write_card` to add arbitrary frontmatter.
+
 ## Anti-patterns
 
 - `description: "Contact"` — useless for search; write a real snippet.

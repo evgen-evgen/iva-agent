@@ -136,6 +136,13 @@
     "proposal": "idea",
     "hypothesis": "idea"
   },
+  "card_type_dirs": {
+    "contact": "contacts",
+    "project": "projects",
+    "decision": "decisions",
+    "idea": "ideas",
+    "note": "notes"
+  },
   "field_fixes": {
     "status": {
       "actve": "active",

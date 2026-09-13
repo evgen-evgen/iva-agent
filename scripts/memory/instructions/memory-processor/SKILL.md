@@ -48,6 +48,12 @@ used — you are the enrichment.
 | Idea / proposal                   | `cards/ideas/`                   | `idea`          |
 | Decision                          | `cards/decisions/`               | `decision`      |
 
+This table is the stock schema, not a closed ontology. A vault may define additional
+entity types through `schema.json` → `node_types` plus `card_type_dirs` (for example,
+`commitment` → `commitments`). When present, treat those schema-owned types exactly like
+the stock card types: use their descriptions and status enums, and write them through
+`write_card`. Summary types still belong only to the rollup.
+
 Always pick `type` and `status` from `schema.json` → `node_types`. Never invent a status.
 
 ## Flow (4 phases)

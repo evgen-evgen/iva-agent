@@ -1,0 +1,234 @@
+{
+  "id": "ceo-week-delta",
+  "version": "1.0.0",
+  "language": "ru",
+  "timezone": "Europe/Warsaw",
+  "period": {
+    "start": "2026-09-07",
+    "end": "2026-09-11"
+  },
+  "system_under_test": "Iva Memory nightly daily rollup",
+  "runs": [
+    {
+      "id": "stock",
+      "description": "Current Iva schema and runtime, without CEO-specific card types"
+    },
+    {
+      "id": "ceo-schema",
+      "description": "Same sources and questions with meeting and commitment types enabled",
+      "requires": [
+        "merge schema-ceo-extension.json into the test vault schema",
+        "teach write_card to accept schema-configured card types and folders"
+      ]
+    }
+  ],
+  "entities": [
+    {
+      "id": "person-andrey",
+      "name": "Андрей Ковалёв",
+      "kind": "person",
+      "role": "CEO"
+    },
+    {
+      "id": "person-ivan-petrov",
+      "name": "Иван Петров",
+      "kind": "person",
+      "role": "COO"
+    },
+    {
+      "id": "person-marina",
+      "name": "Марина Волкова",
+      "kind": "person",
+      "role": "Head of Sales"
+    },
+    {
+      "id": "person-oleg",
+      "name": "Олег Смирнов",
+      "kind": "person",
+      "role": "CFO"
+    },
+    {
+      "id": "person-elena",
+      "name": "Елена Орлова",
+      "kind": "person",
+      "role": "Acme procurement lead"
+    },
+    {
+      "id": "person-ivan-sokolov",
+      "name": "Иван Соколов",
+      "kind": "person",
+      "role": "Acme analyst"
+    },
+    { "id": "org-acme", "name": "Acme", "kind": "organization" },
+    { "id": "org-nordsupply", "name": "NordSupply", "kind": "organization" },
+    { "id": "project-delta", "name": "Delta", "kind": "project" }
+  ],
+  "source_entries": [
+    {
+      "id": "D1-E01",
+      "file": "sources/daily/2026-09-07.md",
+      "time": "08:15",
+      "type": "[text]"
+    },
+    {
+      "id": "D1-E02",
+      "file": "sources/daily/2026-09-07.md",
+      "time": "09:10",
+      "type": "[text]"
+    },
+    {
+      "id": "D1-E03",
+      "file": "sources/daily/2026-09-07.md",
+      "time": "10:30",
+      "type": "[forward from: Марина Волкова]"
+    },
+    {
+      "id": "D1-E04",
+      "file": "sources/daily/2026-09-07.md",
+      "time": "11:40",
+      "type": "[forward from: PLAUD]"
+    },
+    {
+      "id": "D1-E05",
+      "file": "sources/daily/2026-09-07.md",
+      "time": "14:20",
+      "type": "[forward from: Олег Смирнов]"
+    },
+    {
+      "id": "D1-E06",
+      "file": "sources/daily/2026-09-07.md",
+      "time": "14:23",
+      "type": "[iva]"
+    },
+
+    {
+      "id": "D2-E01",
+      "file": "sources/daily/2026-09-08.md",
+      "time": "08:45",
+      "type": "[forward from: Сергей, NordSupply]"
+    },
+    {
+      "id": "D2-E02",
+      "file": "sources/daily/2026-09-08.md",
+      "time": "08:47",
+      "type": "[iva]"
+    },
+    {
+      "id": "D2-E03",
+      "file": "sources/daily/2026-09-08.md",
+      "time": "10:30",
+      "type": "[forward from: Елена Орлова]"
+    },
+    {
+      "id": "D2-E04",
+      "file": "sources/daily/2026-09-08.md",
+      "time": "11:05",
+      "type": "[voice]"
+    },
+    {
+      "id": "D2-E05",
+      "file": "sources/daily/2026-09-08.md",
+      "time": "14:15",
+      "type": "[forward from: Олег Смирнов]"
+    },
+    {
+      "id": "D2-E06",
+      "file": "sources/daily/2026-09-08.md",
+      "time": "17:30",
+      "type": "[forward from: Марина Волкова]"
+    },
+
+    {
+      "id": "D3-E01",
+      "file": "sources/daily/2026-09-09.md",
+      "time": "08:10",
+      "type": "[text]"
+    },
+    {
+      "id": "D3-E02",
+      "file": "sources/daily/2026-09-09.md",
+      "time": "09:00",
+      "type": "[forward from: Олег Смирнов]"
+    },
+    {
+      "id": "D3-E03",
+      "file": "sources/daily/2026-09-09.md",
+      "time": "11:25",
+      "type": "[text]"
+    },
+    {
+      "id": "D3-E04",
+      "file": "sources/daily/2026-09-09.md",
+      "time": "13:10",
+      "type": "[forward from: Иван Соколов, Acme]"
+    },
+    {
+      "id": "D3-E05",
+      "file": "sources/daily/2026-09-09.md",
+      "time": "16:00",
+      "type": "[text]"
+    },
+    {
+      "id": "D3-E06",
+      "file": "sources/daily/2026-09-09.md",
+      "time": "16:01",
+      "type": "[iva]"
+    },
+
+    {
+      "id": "D4-E01",
+      "file": "sources/daily/2026-09-10.md",
+      "time": "10:00",
+      "type": "[forward from: PLAUD]"
+    },
+    {
+      "id": "D4-E02",
+      "file": "sources/daily/2026-09-10.md",
+      "time": "12:05",
+      "type": "[voice]"
+    },
+    {
+      "id": "D4-E03",
+      "file": "sources/daily/2026-09-10.md",
+      "time": "15:20",
+      "type": "[forward from: Елена Орлова]"
+    },
+    {
+      "id": "D4-E04",
+      "file": "sources/daily/2026-09-10.md",
+      "time": "17:40",
+      "type": "[text]"
+    },
+
+    {
+      "id": "D5-E01",
+      "file": "sources/daily/2026-09-11.md",
+      "time": "09:20",
+      "type": "[forward from: Сергей, NordSupply]"
+    },
+    {
+      "id": "D5-E02",
+      "file": "sources/daily/2026-09-11.md",
+      "time": "11:40",
+      "type": "[forward from: Иван Петров]"
+    },
+    {
+      "id": "D5-E03",
+      "file": "sources/daily/2026-09-11.md",
+      "time": "13:30",
+      "type": "[forward from: Олег Смирнов]"
+    },
+    {
+      "id": "D5-E04",
+      "file": "sources/daily/2026-09-11.md",
+      "time": "15:00",
+      "type": "[voice]"
+    },
+    {
+      "id": "D5-E05",
+      "file": "sources/daily/2026-09-11.md",
+      "time": "16:10",
+      "type": "[text]"
+    }
+  ]
+}
