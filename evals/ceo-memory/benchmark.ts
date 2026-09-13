@@ -10,6 +10,7 @@ import {
   MEMORY_EVAL_DATE_FILE,
   MEMORY_EVAL_MODE_ENV,
 } from "../../agent/lib/memory-date.ts";
+import { resolveModelProvider } from "../../agent/lib/model-provider.ts";
 
 type Mode = "stock" | "ceo-schema";
 type RequestedMode = Mode | "both";
@@ -60,6 +61,12 @@ type ServerHandle = {
   host: string;
   bearer: string;
   logPath: string;
+};
+
+type BenchmarkModelMetadata = {
+  provider: string;
+  model: string;
+  vision_model: string;
 };
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -154,6 +161,17 @@ export function resolveCodexAuthDataDir(
   return isAbsolute(configured) ? configured : resolve(root, configured);
 }
 
+export function benchmarkModelMetadata(
+  env: NodeJS.ProcessEnv,
+): BenchmarkModelMetadata {
+  const selected = resolveModelProvider(env);
+  return {
+    provider: selected.name,
+    model: selected.model,
+    vision_model: selected.visionModel,
+  };
+}
+
 async function createNewDirectory(path: string): Promise<void> {
   if (existsSync(path)) {
     const kind = statSync(path).isDirectory() ? "directory" : "file";
@@ -239,7 +257,15 @@ function isolatedEnv({
     delete env[key];
   }
 
-  if ((env.MODEL_PROVIDER ?? "ollama") === "codex") {
+  const provider = env.MODEL_PROVIDER ?? "ollama";
+  if (provider === "openrouter" && !env.OPENROUTER_API_KEY?.trim()) {
+    throw new Error(
+      "OPENROUTER_API_KEY is required when MODEL_PROVIDER=openrouter. " +
+        "Create a key at https://openrouter.ai/keys and add it to .env.",
+    );
+  }
+
+  if (provider === "codex") {
     const authDataDir = resolveCodexAuthDataDir(process.env);
     const authFile = join(authDataDir, "codex-auth.json");
     if (!existsSync(authFile)) {
@@ -596,6 +622,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   ).questions;
   const root = outputPath(options.output);
   await createNewDirectory(root);
+  const model = benchmarkModelMetadata(process.env);
 
   const modes: Mode[] =
     options.mode === "both" ? ["stock", "ceo-schema"] : [options.mode];
@@ -607,6 +634,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
         version: scenario.version,
         created_at: new Date().toISOString(),
         modes,
+        ...model,
         prepare_only: options.prepareOnly,
         questions: options.skipQuestions ? "skipped" : "enabled",
       },
@@ -615,6 +643,10 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     )}\n`,
     "utf8",
   );
+
+  if (!options.prepareOnly) {
+    console.log(`Provider: ${model.provider}; model: ${model.model}`);
+  }
 
   for (const mode of modes) {
     await runMode(root, mode, scenario, questions, options);

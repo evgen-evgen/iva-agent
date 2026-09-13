@@ -43,6 +43,31 @@ vault, data directory, local server, and bearer token. It removes Telegram crede
 from the benchmark process and disables answer transcript writes. It never opens or edits
 the live vault.
 
+### Free run through OpenRouter
+
+OpenRouter is already a first-class Iva provider. To use its free model router, put these
+values in the repository's `.env` (keep the real key out of git):
+
+```dotenv
+MODEL_PROVIDER=openrouter
+OPENROUTER_API_KEY=sk-or-v1-your-key
+OPENROUTER_MODEL=openrouter/free
+OPENROUTER_CONTEXT_WINDOW=200000
+```
+
+Then run the benchmark normally:
+
+```bash
+npm run eval:ceo-memory -- --mode stock
+```
+
+`openrouter/free` filters its current free pool for capabilities required by the request,
+including tool calling. It may choose a different model for different requests, so it is
+good for a zero-cost smoke run but introduces model variance into a stock-vs-CEO-schema
+comparison. For a controlled `--mode both` run, use one fixed tool-capable `vendor/model:free`
+slug for both modes. The runner records the configured provider and model in `run.json` and
+never writes the API key there.
+
 When `MODEL_PROVIDER=codex`, the isolated server still needs the OAuth login of the
 working Iva installation. If `data/codex-auth.json` belongs to another checkout, point
 only the auth seam at that installation (the token is not copied into benchmark output):

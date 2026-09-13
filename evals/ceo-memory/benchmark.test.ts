@@ -1,7 +1,12 @@
 /* eslint-disable @typescript-eslint/no-floating-promises -- Node's test runner owns registrations. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { deepMerge, parseArgs, resolveCodexAuthDataDir } from "./benchmark.ts";
+import {
+  benchmarkModelMetadata,
+  deepMerge,
+  parseArgs,
+  resolveCodexAuthDataDir,
+} from "./benchmark.ts";
 
 test("benchmark CLI defaults to a safe single stock run", () => {
   assert.deepEqual(parseArgs([]), {
@@ -67,5 +72,22 @@ test("Codex auth can come from the live Iva data dir without sharing eval state"
       "/srv/iva-agent",
     ),
     "/srv/live-iva/data",
+  );
+});
+
+test("benchmark records the OpenRouter free model without exposing its key", () => {
+  const metadata = benchmarkModelMetadata({
+    MODEL_PROVIDER: "openrouter",
+    OPENROUTER_MODEL: "openrouter/free",
+    OPENROUTER_API_KEY: "secret-not-for-run-json",
+  });
+  assert.deepEqual(metadata, {
+    provider: "openrouter",
+    model: "openrouter/free",
+    vision_model: "google/gemini-2.5-flash",
+  });
+  assert.equal(
+    JSON.stringify(metadata).includes("secret-not-for-run-json"),
+    false,
   );
 });
