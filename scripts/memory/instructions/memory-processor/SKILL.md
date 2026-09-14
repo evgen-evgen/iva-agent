@@ -33,7 +33,8 @@ used — you are the enrichment.
 
 1. Zero or more **entity/decision/idea cards** under `cards/<kind>/`.
 2. One **daily-summary card** at `summaries/daily/YYYY-MM-DD.md`.
-3. A processing marker appended to the raw daily file (never edit existing entries).
+3. A processing marker appended to the raw daily file by the deterministic rollup
+   finalizer, not by the model.
 
 ## Layout & types (from schema.json)
 
@@ -66,37 +67,28 @@ Always pick `type` and `status` from `schema.json` → `node_types`. Never inven
 3. **LINK** (`phases/link.md`) — wire every new card to its domain hub + 2–3 neighbors.
 4. **SUMMARIZE** (`phases/summarize.md`) — write the daily-summary card: the day's
    TOPICS plus a MOC linking up to the week, down to the created cards, and down to
-   the raw daily transcript. Then run the mechanical autograph pass.
+   the raw daily transcript. Return the semantic report; the rollup finalizer owns
+   all mechanical work.
 
-## Mechanical pass (after writing cards & summary)
+## Mechanical finalization
 
-Run from the project root (Iva's working directory) — the scripts are part of the repo, not
-of the vault, and take the vault directory as an argument (`vault` = `$ASSISTANT_VAULT_DIR`):
+Do not run autograph commands and do not append the processing marker. After the model
+turn returns, `scripts/memory/rollup.ts` runs a deterministic finalizer that:
 
-```bash
-# dry-run first, then --apply
-uv run scripts/autograph/cleanup.py vault --apply                         # bounded repair before whole-file readers
-uv run scripts/autograph/enforce.py vault vault/schema.json --apply   # schema compliance + autofix
-uv run scripts/autograph/graph.py fix vault vault/schema.json --apply # repair broken wiki-links
-uv run scripts/autograph/engine.py touch vault/summaries/daily/YYYY-MM-DD.md
-uv run scripts/autograph/moc.py generate vault vault/schema.json      # regenerate domain MOCs
-uv run scripts/autograph/engine.py decay vault                        # recompute relevance/tiers
-uv run scripts/autograph/graph.py health vault vault/schema.json      # confirm score
-```
+1. validates or adds the required daily-summary frontmatter;
+2. runs cleanup, schema enforcement, graph repair, touch, MOC generation, decay, and
+   graph health in a fixed order;
+3. verifies that the graph artifact exists;
+4. appends the processing marker only after every command succeeds.
 
-Read `.graph/enforce-report.json` after `enforce.py`. Every path in
-`compile_candidates` needs semantic repair during the next rollup pass: reread the
-card, decide its current truth, and use `write_card` to leave one coherent card.
-The mechanical pass deliberately refuses to guess when duplicate `## Related`
-sections contain prose.
-
-If `uv` / Python is unavailable, still produce the cards and summary (they are plain
-Markdown) and let the nightly Brain run the mechanical pass later.
+Before the model turn, the same code runs the deterministic supersede scan, so
+`.graph/supersede-candidates.json` is always present when the PROCESS phase reads it.
+A failed mechanical command fails the rollup and leaves the day unmarked for a safe retry.
 
 ## Hard rules
 
-- **Never modify existing transcript entries.** Append only a processing marker (see
-  `scripts/memory/instructions/rules/daily-format.md`).
+- **Never modify the raw transcript.** The deterministic rollup finalizer appends the
+  processing marker after your turn succeeds.
 - **No orphans.** Every card created here must link to a hub and ≥2 neighbors before
   you finish (`phases/link.md`).
 - **description is a search snippet, not the title.** One line, what/why, ~150 chars.

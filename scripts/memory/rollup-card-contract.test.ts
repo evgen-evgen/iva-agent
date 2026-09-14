@@ -214,11 +214,26 @@ void test("memory-processor card examples and the daily prompt keep a card body 
   );
 });
 
-void test("every nightly mechanical path runs bounded cleanup before whole-file enforce", () => {
+void test("daily mechanical work belongs to code and keeps cleanup before enforce", () => {
   const skill = read("instructions/memory-processor/SKILL.md");
   const summarize = read("instructions/memory-processor/phases/summarize.md");
+  const finalizer = read("finalize-daily.ts");
   const brain = read("brain.ts");
-  for (const text of [skill, summarize, brain]) {
-    assertBefore(text, "cleanup.py", "enforce.py");
+
+  for (const instructions of [skill, summarize]) {
+    assert.doesNotMatch(
+      instructions,
+      /uv run scripts\/autograph/,
+      "the model must not be asked to run deterministic maintenance",
+    );
   }
+  assert.match(skill, /deterministic rollup finalizer/);
+  assert.match(summarize, /Do not perform those mechanical steps yourself/);
+  assertBefore(finalizer, '"cleanup.py"', '"enforce.py"');
+  assertBefore(brain, "cleanup.py", "enforce.py");
+  assertBefore(
+    finalizer,
+    '"graph.py", ["health"',
+    "appendDailyProcessingMarker({ vault",
+  );
 });

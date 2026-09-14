@@ -45,6 +45,10 @@ import {
 } from "../lib/rollup-stale-cursor.ts";
 import { sendTelegramHtml } from "../lib/telegram-send.ts";
 import { resolveDailyTargetDate, shiftIsoDate } from "./rollup-target-date.ts";
+import {
+  finalizeDailyMemory,
+  prepareDailyMemory,
+} from "./finalize-daily.ts";
 
 type Period = "daily" | "weekly" | "monthly" | "yearly";
 
@@ -359,6 +363,16 @@ try {
   console.error(`rollup ${period}: ${(error as Error).message}`);
   process.exit(1);
 }
+if (period === "daily") {
+  try {
+    prepareDailyMemory({ vault: VAULT });
+  } catch (error) {
+    console.error(
+      `rollup daily: deterministic preparation failed (${(error as Error).message})`,
+    );
+    process.exit(1);
+  }
+}
 // Снимок CORE ДО хода: файл правит сама ночь, и пропажу секции видно только сравнением
 // с тем, что было. Читается всегда, даже если ночь CORE не откроет вовсе.
 const coreBeforeTurn = period === "daily" ? readCoreText(CORE_PATH) : "";
@@ -571,7 +585,23 @@ if (period === "daily") {
   }
 }
 
-console.log(`rollup ${period} (${today}):\n${result.message}`);
+if (period === "daily") {
+  try {
+    finalizeDailyMemory({
+      vault: VAULT,
+      date: completedDay,
+      timezone: TZ,
+    });
+  } catch (error) {
+    console.error(
+      `rollup daily: deterministic finalization failed (${(error as Error).message})`,
+    );
+    process.exit(1);
+  }
+}
+
+const reportDate = period === "daily" ? completedDay : today;
+console.log(`rollup ${period} (${reportDate}):\n${result.message}`);
 
 // Telegram report only for daily/weekly, and only when the owner turned Reports on. What
 // leaves the chat is one decision, taken in the policy module and proven there by test:

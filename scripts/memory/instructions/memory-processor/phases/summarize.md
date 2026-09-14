@@ -1,7 +1,8 @@
 # Phase 4: SUMMARIZE
 
-Write the daily-summary card — the day's node in the rollup chain. Then run the mechanical
-autograph pass and mark the transcript processed.
+Write the daily-summary card — the day's node in the rollup chain. The deterministic
+rollup finalizer validates the summary, runs autograph, and marks the transcript processed
+after you return. Do not perform those mechanical steps yourself.
 
 Full template + MOC contract: `references/daily-summary.md` and
 `scripts/memory/instructions/rules/daily-format.md`.
@@ -58,37 +59,9 @@ source: daily/YYYY-MM-DD.md
 Quiet day → keep `## Topics` and `## Navigation`; `## Cards created today` may say
 `- (none)`.
 
-## 2. Mark the transcript processed
+## 2. Hand back
 
-Append to the **end** of `daily/YYYY-MM-DD.md` (never edit existing entries):
-
-```markdown
-<!-- processed: YYYY-MM-DDTHH:MM -->
-
----
-
-processed: YYYY-MM-DDTHH:MM
-cards: <N>
-summary: summaries/daily/YYYY-MM-DD.md
----
-```
-
-## 3. Mechanical autograph pass
-
-From the project root, with the vault as an argument (dry-run, then `--apply`):
-
-```bash
-uv run scripts/autograph/cleanup.py vault --apply
-uv run scripts/autograph/enforce.py vault vault/schema.json --apply
-uv run scripts/autograph/graph.py fix vault vault/schema.json --apply
-uv run scripts/autograph/engine.py touch vault/summaries/daily/YYYY-MM-DD.md
-uv run scripts/autograph/moc.py generate vault vault/schema.json
-uv run scripts/autograph/engine.py decay vault
-uv run scripts/autograph/graph.py health vault vault/schema.json
-```
-
-## 4. Hand back
-
-Return a compact result for the rollup script to report to Telegram: date, topics,
-count of cards created/updated, and the health score. The rollup script formats the
-Telegram message — this skill only needs to surface the facts.
+Return a compact result for the rollup script to report to Telegram: date, topics, and
+count of cards created/updated. Do not append a processing marker and do not run autograph
+commands. The rollup finalizer owns those steps and will fail the run if they do not
+complete.
