@@ -53,7 +53,15 @@ type Answer = {
   prompt: string;
   reply: string | null;
   status: string;
+  transport_status?: string;
   error?: string;
+};
+
+export type ArtifactIssue = {
+  date: string;
+  code: string;
+  path: string;
+  message: string;
 };
 
 type ServerHandle = {
@@ -270,7 +278,7 @@ function isolatedEnv({
     const authFile = join(authDataDir, "codex-auth.json");
     if (!existsSync(authFile)) {
       throw new Error(
-        `Codex auth was not found at ${authFile}. Run \`iva login\` in this checkout ` +
+        `Codex auth was not found at ${authFile}. Run `iva login` in this checkout ` +
           `or set ${CODEX_AUTH_DATA_DIR_ENV}=/path/to/your/working-iva/data before the benchmark.`,
       );
     }
@@ -390,7 +398,12 @@ async function runCommand(
 async function sendQuestion(
   server: ServerHandle,
   prompt: string,
-): Promise<{ status: string; reply: string | null; error?: string }> {
+): Promise<{
+  status: string;
+  reply: string | null;
+  transport_status?: string;
+  error?: string;
+}> {
   const client = new Client({
     host: server.host,
     auth: {
@@ -411,11 +424,7 @@ async function sendQuestion(
         );
       }),
     ]);
-    return {
-      status: result.status,
-      reply: result.message?.trim() || null,
-      ...(result.status === "failed" ? { error: "turn failed" } : {}),
-    };
+    return normalizeQuestionResult(result);
   } catch (error) {
     return {
       status: "error",
@@ -425,6 +434,31 @@ async function sendQuestion(
   } finally {
     clearTimeout(timer);
   }
+}
+
+export function normalizeQuestionResult(result: {
+  status: string;
+  message?: string | null;
+}): {
+  status: string;
+  reply: string | null;
+  transport_status?: string;
+  error?: string;
+} {
+  const reply = result.message?.trim() || null;
+  if (result.status === "failed") {
+    return { status: "failed", reply, error: "turn failed" };
+  }
+  if (reply) {
+    return {
+      status: "completed",
+      reply,
+      ...(result.status === "completed"
+        ? {}
+        : { transport_status: result.status }),
+    };
+  }
+  return { status: result.status, reply: null };
 }
 
 function dates(scenario: Scenario): string[] {
@@ -439,10 +473,205 @@ function dates(scenario: Scenario): string[] {
   ].sort();
 }
 
-async function processWeek(modeDir: string, scenario: Scenario): Promise<void> {
+function issue(
+  date: string,
+  code: string,
+  path: string,
+  message: string,
+): ArtifactIssue {
+  return { date, code, path, message };
+}
+
+export async function validateDailyArtifacts(
+  vault: string,
+  date: string,
+): Promise<ArtifactIssue[]> {
+  const issues: ArtifactIssue[] = [];
+  const rawRelative = `daily/${date}.md`;
+  const summaryRelative = `summaries/daily/${date}.md`;
+  const rawPath = join(vault, rawRelative);
+  const summaryPath = join(vault, summaryRelative);
+
+  if (!existsSync(rawPath)) {
+    issues.push(
+      issue(date, "missing-daily", rawRelative, "Raw daily file is missing."),
+    );
+  } else {
+    const raw = await readFile(rawPath, "utf8");
+    const marker = new RegExp(
+      `<!-- processed: ${date}T\\d{2}:\\d{2} -->[\\s\\S]*summary: summaries/daily/${date}\\.md`,
+    );
+    if (!marker.test(raw)) {
+      issues.push(
+        issue(
+          date,
+          "missing-processing-marker",
+          rawRelative,
+          "Daily rollup did not append the required processed marker and summary reference.",
+        ),
+      );
+    }
+  }
+
+  if (!existsSync(summaryPath)) {
+    issues.push(
+      issue(
+        date,
+        "missing-daily-summary",
+        summaryRelative,
+        "Daily summary is missing.",
+      ),
+    );
+  } else {
+    const summary = await readFile(summaryPath, "utf8");
+    const frontmatter = /^---\n([\s\S]*?)\n---(?:\n|$)/.exec(summary)?.[1];
+    if (!frontmatter) {
+      issues.push(
+        issue(
+          date,
+          "missing-summary-frontmatter",
+          summaryRelative,
+          "Daily summary does not start with YAML frontmatter.",
+        ),
+      );
+    } else {
+      const required = [
+        ["type", /^type:\s*daily-summary\s*$/m],
+        ["date", new RegExp(`^date:\\s*${date}\\s*$`, "m")],
+        [
+          "source",
+          new RegExp(`^source:\\s*daily/${date}\\.md\\s*$`, "m"),
+        ],
+      ] as const;
+      for (const [field, pattern] of required) {
+        if (!pattern.test(frontmatter)) {
+          issues.push(
+            issue(
+              date,
+              `invalid-summary-${field}`,
+              summaryRelative,
+              `Daily summary frontmatter is missing the expected ${field}.`,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  const graphRelative = ".graph/vault-graph.json";
+  if (!existsSync(join(vault, graphRelative))) {
+    issues.push(
+      issue(
+        date,
+        "missing-vault-graph",
+        graphRelative,
+        "Mechanical autograph pass did not generate the vault graph.",
+      ),
+    );
+  }
+
+  const mocRelative = "MOC.md";
+  const mocPath = join(vault, mocRelative);
+  if (
+    !existsSync(mocPath) ||
+    !(await readFile(mocPath, "utf8")).includes("[[MOC/")
+  ) {
+    issues.push(
+      issue(
+        date,
+        "stale-moc",
+        mocRelative,
+        "Mechanical autograph pass did not generate a card-linked MOC hub.",
+      ),
+    );
+  }
+
+  if (date >= "2026-09-10") {
+    const deltaRelative = "cards/projects/delta.md";
+    const deltaPath = join(vault, deltaRelative);
+    if (!existsSync(deltaPath)) {
+      issues.push(
+        issue(
+          date,
+          "missing-delta-card",
+          deltaRelative,
+          "The benchmark project card is missing after the launch-date decision.",
+        ),
+      );
+    } else {
+      const delta = await readFile(deltaPath, "utf8");
+      const historyIndex = delta.search(/^## History\s*$/m);
+      if (historyIndex < 0) {
+        issues.push(
+          issue(
+            date,
+            "missing-delta-history",
+            deltaRelative,
+            "The superseded 18 September launch date was not preserved under History.",
+          ),
+        );
+      } else {
+        const current = delta.slice(0, historyIndex);
+        const history = delta.slice(historyIndex);
+        const currentDate = /(2026-09-25|25\s+сентября|September\s+25)/i;
+        const oldDate = /(2026-09-18|18\s+сентября|September\s+18)/i;
+        if (!currentDate.test(current)) {
+          issues.push(
+            issue(
+              date,
+              "missing-current-launch-date",
+              deltaRelative,
+              "The current section does not contain the 25 September launch date.",
+            ),
+          );
+        }
+        if (!oldDate.test(history)) {
+          issues.push(
+            issue(
+              date,
+              "missing-superseded-launch-date",
+              deltaRelative,
+              "History does not contain the superseded 18 September launch date.",
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  return issues;
+}
+
+async function writeArtifactValidation(
+  modeDir: string,
+  checkedDates: string[],
+  issues: ArtifactIssue[],
+): Promise<void> {
+  await writeFile(
+    join(modeDir, "artifact-validation.json"),
+    `${JSON.stringify(
+      {
+        status: issues.length === 0 ? "passed" : "failed",
+        checked_dates: checkedDates,
+        issue_count: issues.length,
+        issues,
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+}
+
+async function processWeek(
+  modeDir: string,
+  scenario: Scenario,
+): Promise<ArtifactIssue[]> {
   const vault = join(modeDir, "vault");
   const data = join(modeDir, "data");
   const serverLog = join(modeDir, "processing-server.log");
+  const artifactIssues: ArtifactIssue[] = [];
+  const checkedDates: string[] = [];
   let server: ServerHandle | null = null;
   try {
     const started = await startServer({
@@ -470,11 +699,21 @@ async function processWeek(modeDir: string, scenario: Scenario): Promise<void> {
         started.env,
         join(modeDir, `rollup-${date}.log`),
       );
+      const dailyIssues = await validateDailyArtifacts(vault, date);
+      artifactIssues.push(...dailyIssues);
+      checkedDates.push(date);
+      await writeArtifactValidation(modeDir, checkedDates, artifactIssues);
+      if (dailyIssues.length > 0) {
+        console.warn(
+          `[${modeDir.split("/").at(-1)}] ${date}: ${dailyIssues.length} artifact contract issue(s)`,
+        );
+      }
       await cp(vault, join(modeDir, "snapshots", date), { recursive: true });
     }
   } finally {
     await stopServer(server);
   }
+  return artifactIssues;
 }
 
 function checkpointDate(checkpoint: string, scenario: Scenario): string {
@@ -581,17 +820,18 @@ async function runMode(
   scenario: Scenario,
   questions: Question[],
   options: CliOptions,
-): Promise<void> {
+): Promise<ArtifactIssue[]> {
   const modeDir = await prepareMode(root, mode);
-  if (options.prepareOnly) return;
-  await processWeek(modeDir, scenario);
-  if (options.skipQuestions) return;
+  if (options.prepareOnly) return [];
+  const artifactIssues = await processWeek(modeDir, scenario);
+  if (options.skipQuestions) return artifactIssues;
   const answers = await askQuestions(modeDir, scenario, questions);
   await writeFile(
     join(modeDir, "review.md"),
     reviewMarkdown(questions, answers),
     "utf8",
   );
+  return artifactIssues;
 }
 
 export async function main(args = process.argv.slice(2)): Promise<void> {
@@ -626,21 +866,18 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
 
   const modes: Mode[] =
     options.mode === "both" ? ["stock", "ceo-schema"] : [options.mode];
+  const runRecord: Record<string, unknown> = {
+    scenario: scenario.id,
+    version: scenario.version,
+    created_at: new Date().toISOString(),
+    modes,
+    ...model,
+    prepare_only: options.prepareOnly,
+    questions: options.skipQuestions ? "skipped" : "enabled",
+  };
   await writeFile(
     join(root, "run.json"),
-    `${JSON.stringify(
-      {
-        scenario: scenario.id,
-        version: scenario.version,
-        created_at: new Date().toISOString(),
-        modes,
-        ...model,
-        prepare_only: options.prepareOnly,
-        questions: options.skipQuestions ? "skipped" : "enabled",
-      },
-      null,
-      2,
-    )}\n`,
+    `${JSON.stringify(runRecord, null, 2)}\n`,
     "utf8",
   );
 
@@ -648,10 +885,36 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     console.log(`Provider: ${model.provider}; model: ${model.model}`);
   }
 
+  const validation: Record<string, { status: string; issue_count: number }> =
+    {};
+  let issueCount = 0;
   for (const mode of modes) {
-    await runMode(root, mode, scenario, questions, options);
+    const issues = await runMode(root, mode, scenario, questions, options);
+    issueCount += issues.length;
+    validation[mode] = {
+      status: issues.length === 0 ? "passed" : "failed",
+      issue_count: issues.length,
+    };
   }
+  runRecord.completed_at = new Date().toISOString();
+  runRecord.status = options.prepareOnly
+    ? "prepared"
+    : issueCount === 0
+      ? "completed"
+      : "completed_with_artifact_failures";
+  runRecord.artifact_validation = validation;
+  await writeFile(
+    join(root, "run.json"),
+    `${JSON.stringify(runRecord, null, 2)}\n`,
+    "utf8",
+  );
   console.log(`CEO memory benchmark output: ${root}`);
+  if (issueCount > 0) {
+    console.error(
+      `Artifact contract failed with ${issueCount} issue(s). See artifact-validation.json; answers and snapshots were preserved.`,
+    );
+    process.exitCode = 2;
+  }
 }
 
 const entry = process.argv[1]

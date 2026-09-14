@@ -1,12 +1,29 @@
 /* eslint-disable @typescript-eslint/no-floating-promises -- Node's test runner owns registrations. */
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { after, test } from "node:test";
 import {
   benchmarkModelMetadata,
   deepMerge,
+  normalizeQuestionResult,
   parseArgs,
   resolveCodexAuthDataDir,
+  validateDailyArtifacts,
 } from "./benchmark.ts";
+
+const dirs: string[] = [];
+
+function tempDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), "iva-ceo-benchmark-"));
+  dirs.push(dir);
+  return dir;
+}
+
+after(() => {
+  for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+});
 
 test("benchmark CLI defaults to a safe single stock run", () => {
   assert.deepEqual(parseArgs([]), {
@@ -90,4 +107,70 @@ test("benchmark records the OpenRouter free model without exposing its key", () 
     JSON.stringify(metadata).includes("secret-not-for-run-json"),
     false,
   );
+});
+
+test("a reply is recorded as completed even when Eve returns to waiting", () => {
+  assert.deepEqual(
+    normalizeQuestionResult({ status: "waiting", message: "  answer  " }),
+    {
+      status: "completed",
+      reply: "answer",
+      transport_status: "waiting",
+    },
+  );
+  assert.deepEqual(normalizeQuestionResult({ status: "failed" }), {
+    status: "failed",
+    reply: null,
+    error: "turn failed",
+  });
+});
+
+test("artifact validator accepts a complete daily memory contract", async () => {
+  const vault = tempDir();
+  mkdirSync(join(vault, "daily"), { recursive: true });
+  mkdirSync(join(vault, "summaries", "daily"), { recursive: true });
+  mkdirSync(join(vault, ".graph"), { recursive: true });
+  mkdirSync(join(vault, "cards", "projects"), { recursive: true });
+  writeFileSync(
+    join(vault, "daily", "2026-09-10.md"),
+    "source\n<!-- processed: 2026-09-10T23:45 -->\nsummary: summaries/daily/2026-09-10.md\n",
+  );
+  writeFileSync(
+    join(vault, "summaries", "daily", "2026-09-10.md"),
+    "---\ntype: daily-summary\ndate: 2026-09-10\nsource: daily/2026-09-10.md\n---\n# Day\n",
+  );
+  writeFileSync(join(vault, ".graph", "vault-graph.json"), "{}\n");
+  writeFileSync(join(vault, "MOC.md"), "[[MOC/MOC-projects]]\n");
+  writeFileSync(
+    join(vault, "cards", "projects", "delta.md"),
+    "Launch: 25 сентября\n\n## History\n\nLaunch: 18 сентября\n",
+  );
+  assert.deepEqual(await validateDailyArtifacts(vault, "2026-09-10"), []);
+});
+
+test("artifact validator exposes skipped mechanical and supersede work", async () => {
+  const vault = tempDir();
+  mkdirSync(join(vault, "daily"), { recursive: true });
+  mkdirSync(join(vault, "summaries", "daily"), { recursive: true });
+  mkdirSync(join(vault, "cards", "projects"), { recursive: true });
+  writeFileSync(join(vault, "daily", "2026-09-10.md"), "source\n");
+  writeFileSync(
+    join(vault, "summaries", "daily", "2026-09-10.md"),
+    "# 2026-09-10\n",
+  );
+  writeFileSync(join(vault, "MOC.md"), "# template\n");
+  writeFileSync(
+    join(vault, "cards", "projects", "delta.md"),
+    "Launch: 25 сентября\n",
+  );
+  const codes = (await validateDailyArtifacts(vault, "2026-09-10")).map(
+    ({ code }) => code,
+  );
+  assert.deepEqual(codes, [
+    "missing-processing-marker",
+    "missing-summary-frontmatter",
+    "missing-vault-graph",
+    "stale-moc",
+    "missing-delta-history",
+  ]);
 });
