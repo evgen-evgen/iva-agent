@@ -44,11 +44,12 @@ import {
   sentNotBeforeIso,
 } from "../lib/rollup-stale-cursor.ts";
 import { sendTelegramHtml } from "../lib/telegram-send.ts";
-import { resolveDailyTargetDate, shiftIsoDate } from "./rollup-target-date.ts";
 import {
-  finalizeDailyMemory,
-  prepareDailyMemory,
-} from "./finalize-daily.ts";
+  resolveDailyTargetDate,
+  resolveRollupPromptDate,
+  shiftIsoDate,
+} from "./rollup-target-date.ts";
+import { finalizeDailyMemory, prepareDailyMemory } from "./finalize-daily.ts";
 
 type Period = "daily" | "weekly" | "monthly" | "yearly";
 
@@ -383,7 +384,16 @@ let session = saved ? client.session(saved.state) : client.session();
 // Nonce делает промпт уникальным для этого Rollup; guardedTurn сдвигает курсор
 // на хвост перед каждым send. Снять, когда eve свяжет result() с отправленным ходом.
 const mainPrompt = attachRollupNonce(
-  buildPrompt(period, today, completedDay),
+  buildPrompt(
+    period,
+    resolveRollupPromptDate(
+      period,
+      today,
+      completedDay,
+      process.env.IVA_MEMORY_EVAL_MODE === "1",
+    ),
+    completedDay,
+  ),
   randomUUID(),
 );
 let result: MessageResult;

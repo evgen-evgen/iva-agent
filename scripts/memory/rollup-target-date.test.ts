@@ -1,7 +1,11 @@
 /* eslint-disable @typescript-eslint/no-floating-promises -- Node's test runner owns registrations. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { resolveDailyTargetDate, shiftIsoDate } from "./rollup-target-date.ts";
+import {
+  resolveDailyTargetDate,
+  resolveRollupPromptDate,
+  shiftIsoDate,
+} from "./rollup-target-date.ts";
 
 test("daily rollup defaults to the previous completed day", () => {
   assert.equal(resolveDailyTargetDate("daily", [], "2026-09-13"), "2026-09-12");
@@ -55,5 +59,20 @@ test("target date fails closed for invalid, future, duplicate, and non-daily use
         "2026-09-13",
       ),
     /only for the daily/,
+  );
+});
+
+test("daily evaluation prompts use the simulated day without changing production dates", () => {
+  assert.equal(
+    resolveRollupPromptDate("daily", "2026-09-14", "2026-09-11", true),
+    "2026-09-11",
+  );
+  assert.equal(
+    resolveRollupPromptDate("daily", "2026-09-14", "2026-09-11", false),
+    "2026-09-14",
+  );
+  assert.equal(
+    resolveRollupPromptDate("weekly", "2026-09-14", "2026-09-11", true),
+    "2026-09-14",
   );
 });

@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { createWriteStream, existsSync, readFileSync, statSync } from "node:fs";
-import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -77,12 +77,39 @@ type BenchmarkModelMetadata = {
   vision_model: string;
 };
 
+type ArtifactValidationSummary = Record<
+  string,
+  { status: string; issue_count: number }
+>;
+
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const FIXTURE = join(ROOT, "evals", "ceo-memory", "v1");
 const EVE_BIN = join(ROOT, "node_modules", "eve", "bin", "eve.js");
 const TURN_TIMEOUT_MS = 180_000;
 const SERVER_TIMEOUT_MS = 90_000;
 const CODEX_AUTH_DATA_DIR_ENV = "IVA_CODEX_AUTH_DATA_DIR";
+const DAILY_ROLLUP_SESSION_FILE = "rollup-session-daily.json";
+
+export function failedRunRecord(
+  runRecord: Record<string, unknown>,
+  failedMode: Mode,
+  validation: ArtifactValidationSummary,
+  error: unknown,
+  completedAt = new Date().toISOString(),
+): Record<string, unknown> {
+  return {
+    ...runRecord,
+    completed_at: completedAt,
+    status: "failed",
+    failed_mode: failedMode,
+    error: error instanceof Error ? error.message : String(error),
+    artifact_validation: validation,
+  };
+}
+
+export async function resetDailyRollupSession(dataDir: string): Promise<void> {
+  await rm(join(dataDir, DAILY_ROLLUP_SESSION_FILE), { force: true });
+}
 
 export function parseArgs(args: readonly string[]): CliOptions {
   const options: CliOptions = {
@@ -278,7 +305,7 @@ function isolatedEnv({
     const authFile = join(authDataDir, "codex-auth.json");
     if (!existsSync(authFile)) {
       throw new Error(
-        `Codex auth was not found at ${authFile}. Run `iva login` in this checkout ` +
+        `Codex auth was not found at ${authFile}. Run "iva login" in this checkout ` +
           `or set ${CODEX_AUTH_DATA_DIR_ENV}=/path/to/your/working-iva/data before the benchmark.`,
       );
     }
@@ -538,10 +565,7 @@ export async function validateDailyArtifacts(
       const required = [
         ["type", /^type:\s*daily-summary\s*$/m],
         ["date", new RegExp(`^date:\\s*${date}\\s*$`, "m")],
-        [
-          "source",
-          new RegExp(`^source:\\s*daily/${date}\\.md\\s*$`, "m"),
-        ],
+        ["source", new RegExp(`^source:\\s*daily/${date}\\.md\\s*$`, "m")],
       ] as const;
       for (const [field, pattern] of required) {
         if (!pattern.test(frontmatter)) {
@@ -688,17 +712,28 @@ async function processWeek(
         join(vault, "daily", `${date}.md`),
       );
       await writeFile(join(data, MEMORY_EVAL_DATE_FILE), `${date}\n`, "utf8");
-      await runCommand(
-        process.execPath,
-        [
-          join(ROOT, "scripts", "memory", "rollup.ts"),
-          "daily",
-          "--target-date",
-          date,
-        ],
-        started.env,
-        join(modeDir, `rollup-${date}.log`),
-      );
+      // Each synthetic day measures extraction from the vault and that day's source,
+      // not how well one chat session survives five accumulating rollup prompts.
+      await resetDailyRollupSession(data);
+      try {
+        await runCommand(
+          process.execPath,
+          [
+            join(ROOT, "scripts", "memory", "rollup.ts"),
+            "daily",
+            "--target-date",
+            date,
+          ],
+          started.env,
+          join(modeDir, `rollup-${date}.log`),
+        );
+      } catch (error) {
+        const dailyIssues = await validateDailyArtifacts(vault, date);
+        artifactIssues.push(...dailyIssues);
+        checkedDates.push(date);
+        await writeArtifactValidation(modeDir, checkedDates, artifactIssues);
+        throw error;
+      }
       const dailyIssues = await validateDailyArtifacts(vault, date);
       artifactIssues.push(...dailyIssues);
       checkedDates.push(date);
@@ -874,6 +909,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     ...model,
     prepare_only: options.prepareOnly,
     questions: options.skipQuestions ? "skipped" : "enabled",
+    status: "running",
   };
   await writeFile(
     join(root, "run.json"),
@@ -885,16 +921,39 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     console.log(`Provider: ${model.provider}; model: ${model.model}`);
   }
 
-  const validation: Record<string, { status: string; issue_count: number }> =
-    {};
+  const validation: ArtifactValidationSummary = {};
   let issueCount = 0;
-  for (const mode of modes) {
-    const issues = await runMode(root, mode, scenario, questions, options);
-    issueCount += issues.length;
-    validation[mode] = {
-      status: issues.length === 0 ? "passed" : "failed",
-      issue_count: issues.length,
-    };
+  let activeMode: Mode = modes[0];
+  try {
+    for (const mode of modes) {
+      activeMode = mode;
+      const issues = await runMode(root, mode, scenario, questions, options);
+      issueCount += issues.length;
+      validation[mode] = {
+        status: issues.length === 0 ? "passed" : "failed",
+        issue_count: issues.length,
+      };
+    }
+  } catch (error) {
+    if (!validation[activeMode]) {
+      validation[activeMode] = {
+        status: "not_completed",
+        issue_count: 0,
+      };
+    }
+    const failedRecord = failedRunRecord(
+      runRecord,
+      activeMode,
+      validation,
+      error,
+    );
+    await writeFile(
+      join(root, "run.json"),
+      `${JSON.stringify(failedRecord, null, 2)}\n`,
+      "utf8",
+    );
+    console.error(`CEO memory benchmark failed; partial output: ${root}`);
+    throw error;
   }
   runRecord.completed_at = new Date().toISOString();
   runRecord.status = options.prepareOnly

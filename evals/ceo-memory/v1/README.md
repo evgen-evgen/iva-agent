@@ -103,12 +103,18 @@ The benchmark clock is frozen at the day being processed or questioned. Producti
 continues to use the real user date and time; the override is active only inside the
 isolated process marked with `IVA_MEMORY_EVAL_MODE=1`.
 
+Each synthetic day also starts a fresh processing session. The vault persists between
+days, but the model conversation does not, so the benchmark measures durable memory
+rather than an increasingly long rollup chat context.
+
 After each rollup, the runner checks that the raw day has a processing marker, the daily
 summary has the required frontmatter, autograph produced the graph and MOC, and the Delta
 launch-date change is represented with current truth plus history. These checks are
 recorded in `artifact-validation.json`. If any fail, the runner still asks all questions
 and preserves every snapshot and answer, then exits with code `2` and marks `run.json` as
 `completed_with_artifact_failures`. This is a benchmark failure, not a lost run.
+If a rollup itself aborts, `run.json` is finalized with `status: failed`, the failed
+mode, and the error message; partial logs and earlier snapshots remain available.
 
 Completed replies in `answers.json` use `status: "completed"`. If Eve returned to its
 normal idle state after producing the reply, the original `waiting` state remains visible

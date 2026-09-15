@@ -41,3 +41,12 @@ export function resolveDailyTargetDate(
   }
   return value;
 }
+
+export function resolveRollupPromptDate(
+  period: Period,
+  localToday: string,
+  completedDay: string,
+  evaluationMode: boolean,
+): string {
+  return evaluationMode && period === "daily" ? completedDay : localToday;
+}

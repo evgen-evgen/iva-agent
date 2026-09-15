@@ -1,14 +1,22 @@
 /* eslint-disable @typescript-eslint/no-floating-promises -- Node's test runner owns registrations. */
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import {
   benchmarkModelMetadata,
   deepMerge,
+  failedRunRecord,
   normalizeQuestionResult,
   parseArgs,
+  resetDailyRollupSession,
   resolveCodexAuthDataDir,
   validateDailyArtifacts,
 } from "./benchmark.ts";
@@ -123,6 +131,38 @@ test("a reply is recorded as completed even when Eve returns to waiting", () => 
     reply: null,
     error: "turn failed",
   });
+});
+
+test("an interrupted benchmark records a terminal failed state", () => {
+  assert.deepEqual(
+    failedRunRecord(
+      { scenario: "ceo-week-v1", status: "running" },
+      "stock",
+      { stock: { status: "failed", issue_count: 2 } },
+      new Error("daily summary is missing"),
+      "2026-09-14T17:35:00.000Z",
+    ),
+    {
+      scenario: "ceo-week-v1",
+      status: "failed",
+      completed_at: "2026-09-14T17:35:00.000Z",
+      failed_mode: "stock",
+      error: "daily summary is missing",
+      artifact_validation: {
+        stock: { status: "failed", issue_count: 2 },
+      },
+    },
+  );
+});
+
+test("each synthetic day discards the previous rollup session cursor", async () => {
+  const data = tempDir();
+  const cursor = join(data, "rollup-session-daily.json");
+  writeFileSync(cursor, '{"state":"old"}\n');
+
+  await resetDailyRollupSession(data);
+
+  assert.equal(existsSync(cursor), false);
 });
 
 test("artifact validator accepts a complete daily memory contract", async () => {
