@@ -18,6 +18,7 @@ import {
   parseArgs,
   resetDailyRollupSession,
   validateCeoCommitments,
+  validateCommitmentPlanArtifact,
   resolveCodexAuthDataDir,
   validateDailyArtifacts,
 } from "./benchmark.ts";
@@ -315,5 +316,20 @@ test("CEO commitment validator exposes missing materialization", async () => {
   assert.deepEqual(
     issues.map(({ code }) => code),
     ["missing-commitment-directory"],
+  );
+});
+
+test("CEO artifact contract exposes a missing mandatory commitment plan", () => {
+  const vault = tempDir();
+  assert.deepEqual(
+    validateCommitmentPlanArtifact(vault, "2026-09-07").map(
+      ({ code, path }) => ({ code, path }),
+    ),
+    [
+      {
+        code: "missing-commitment-plan",
+        path: ".memory/commitment-plans/2026-09-07.json",
+      },
+    ],
   );
 });

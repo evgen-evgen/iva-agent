@@ -18,6 +18,10 @@ import {
 } from "../../agent/lib/memory-date.ts";
 import { resolveModelProvider } from "../../agent/lib/model-provider.ts";
 import { parseFrontmatter } from "../../agent/lib/frontmatter.ts";
+import {
+  readCommitmentPlan,
+  requireAppliedCommitmentPlan,
+} from "../../agent/lib/commitment-plan.ts";
 
 type Mode = "stock" | "ceo-schema";
 type RequestedMode = Mode | "both";
@@ -672,10 +676,31 @@ export async function validateDailyArtifacts(
   }
 
   if (mode === "ceo-schema") {
+    issues.push(...validateCommitmentPlanArtifact(vault, date));
     issues.push(...(await validateCeoCommitments(vault, date)));
   }
 
   return issues;
+}
+
+export function validateCommitmentPlanArtifact(
+  vault: string,
+  date: string,
+): ArtifactIssue[] {
+  try {
+    requireAppliedCommitmentPlan(vault, date);
+    return [];
+  } catch (error) {
+    const plan = readCommitmentPlan(vault, date);
+    return [
+      issue(
+        date,
+        plan ? "invalid-commitment-plan" : "missing-commitment-plan",
+        `.memory/commitment-plans/${date}.json`,
+        error instanceof Error ? error.message : String(error),
+      ),
+    ];
+  }
 }
 
 type CommitmentArtifact = {

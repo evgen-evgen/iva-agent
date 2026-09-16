@@ -61,6 +61,13 @@ Every explicit promise or obligation that has an owner, a deliverable, and a due
 MUST become a commitment card through `write_commitment`. It is not enough to mention it
 in a contact/project card or only in the daily summary.
 
+The scheduled daily rollup enforces this with a dedicated pre-pass before general memory
+processing. The pre-pass classifies every H2 transcript section through exactly one
+`submit_commitment_plan` call. That tool validates complete section coverage, applies all
+lifecycle actions through `write_commitment`, and binds the resulting audit artifact at
+`.memory/commitment-plans/YYYY-MM-DD.json` to the source-content SHA-256. The general
+rollup must treat the applied plan and resulting commitment cards as authoritative.
+
 - `create` when the promise is made;
 - `reschedule` when its due date changes;
 - `complete` when delivery is explicitly confirmed;
@@ -118,9 +125,10 @@ A failed mechanical command fails the rollup and leaves the day unmarked for a s
 - **One structure per card.** Exactly one `## Log` and one `## Related`; never emit
   dated `## Обновление` / `## Update` headings. Pass relations only through the
   `write_card.related` argument, never inside `body`.
-- **Commitments are tool-owned state.** If `schema.json` enables `commitment`, reread
-  `cards/commitments/` before each lifecycle transition and use `write_commitment`.
-  Never edit those cards with `write_file` or generic `write_card`.
+- **Commitments are tool-owned state.** If `schema.json` enables `commitment`, the daily
+  rollup must have a complete, source-bound, applied commitment plan before it can be
+  marked processed. Treat the applied plan and `cards/commitments/` as authoritative.
+  Never edit commitment cards with `write_file` or generic `write_card`.
 - **Verify writes.** Reread every created or updated card before finishing. Confirm
   one Log, one Related, no empty/dated update headings, and that Compiled Truth says
   what is true now. A failed invariant keeps the rollup unfinished.

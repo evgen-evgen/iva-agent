@@ -46,10 +46,7 @@ test("prepare step deterministically creates the supersede input", () => {
   const run: FinalizerCommandRunner = (_command, args) => {
     commands.push(basename(args[1]));
     mkdirSync(join(vault, ".graph"), { recursive: true });
-    writeFileSync(
-      join(vault, ".graph", "supersede-candidates.json"),
-      "[]\n",
-    );
+    writeFileSync(join(vault, ".graph", "supersede-candidates.json"), "[]\n");
     return { status: 0 };
   };
 
@@ -57,10 +54,7 @@ test("prepare step deterministically creates the supersede input", () => {
 
   assert.deepEqual(commands, ["supersede.py"]);
   assert.equal(
-    readFileSync(
-      join(vault, ".graph", "supersede-candidates.json"),
-      "utf8",
-    ),
+    readFileSync(join(vault, ".graph", "supersede-candidates.json"), "utf8"),
     "[]\n",
   );
 });
@@ -121,6 +115,33 @@ test("a failed mechanical step leaves the day unmarked for a safe retry", () => 
     () => finalizeDailyMemory({ vault, date, timezone: "UTC", run }),
     /cleanup\.py failed.*cleanup failed/s,
   );
+  assert.doesNotMatch(
+    readFileSync(join(vault, "daily", `${date}.md`), "utf8"),
+    /<!-- processed:/,
+  );
+});
+
+test("CEO schema finalization refuses a day without an applied commitment plan", () => {
+  const date = "2026-09-10";
+  const vault = fixture(date);
+  writeFileSync(
+    join(vault, "schema.json"),
+    JSON.stringify({
+      node_types: { commitment: { status: ["open", "done", "cancelled"] } },
+      card_type_dirs: { commitment: "commitments" },
+    }),
+  );
+  const commands: string[] = [];
+  const run: FinalizerCommandRunner = (_command, args) => {
+    commands.push(basename(args[1]));
+    return { status: 0 };
+  };
+
+  assert.throws(
+    () => finalizeDailyMemory({ vault, date, timezone: "UTC", run }),
+    /commitment plan is missing or invalid/,
+  );
+  assert.deepEqual(commands, []);
   assert.doesNotMatch(
     readFileSync(join(vault, "daily", `${date}.md`), "utf8"),
     /<!-- processed:/,

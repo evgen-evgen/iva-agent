@@ -50,6 +50,12 @@ import {
   shiftIsoDate,
 } from "./rollup-target-date.ts";
 import { finalizeDailyMemory, prepareDailyMemory } from "./finalize-daily.ts";
+import {
+  buildCommitmentPrepassPrompt,
+  commitmentPlanApplied,
+  commitmentPlanFailure,
+  commitmentPrepassRequired,
+} from "./commitment-prepass.ts";
 
 type Period = "daily" | "weekly" | "monthly" | "yearly";
 
@@ -143,10 +149,10 @@ function buildPrompt(p: Period, now: string, dailyTarget: string): string {
         `A card 'body' is facts only, with no H1/H2 headings: write_card builds the card ` +
         `structure itself (the title, '## Log', '## Related', '## History') and refuses a body ` +
         `that carries a heading of its own. ` +
-        `If schema.json defines a commitment card type, every explicit promise with owner, deliverable, ` +
-        `and due date MUST be materialized through write_commitment. Use its create/reschedule/complete/` +
-        `cancel lifecycle and reuse the same commitment_id; do not leave commitment state only in another ` +
-        `card or summary, and do not use generic write_card for commitment transitions. ` +
+        `If schema.json defines a commitment card type, the mandatory commitment pre-pass has already ` +
+        `classified every transcript section and applied its lifecycle plan. Read the resulting commitment ` +
+        `cards and .memory/commitment-plans/${dailyTarget}.json as authoritative operational state; do not ` +
+        `recreate those commitments or use generic write_card for their transitions in this general pass. ` +
         `Never leave two contradictory Compiled Truths; History is append-only, never edited. ` +
         `Tag each fact's certainty with 'confidence:' — EXTRACTED (user stated it directly) or ` +
         `INFERRED (you deduced it). ` +
@@ -384,6 +390,74 @@ const coreBeforeTurn = period === "daily" ? readCoreText(CORE_PATH) : "";
 const saved = loadSession();
 let sessionCreatedAt = saved?.createdAt ?? Date.now();
 let session = saved ? client.session(saved.state) : client.session();
+
+if (period === "daily" && commitmentPrepassRequired(VAULT)) {
+  let applied = commitmentPlanApplied(VAULT, completedDay);
+  for (let attempt = 1; !applied && attempt <= 2; attempt++) {
+    const prompt = attachRollupNonce(
+      buildCommitmentPrepassPrompt({
+        vault: VAULT,
+        date: completedDay,
+        timezone: TZ,
+        attempt,
+      }),
+      randomUUID(),
+    );
+    let prepassResult: MessageResult;
+    let prepassSentNotBefore: string;
+    try {
+      ({ result: prepassResult, sentNotBefore: prepassSentNotBefore } =
+        await guardedTurn(session, prompt, `commitment-prepass-${attempt}`));
+    } catch (error) {
+      if ((error as { code?: string }).code === "ROLLUP_TURN_TIMEOUT") {
+        await dropHungSession(`commitment-prepass-${attempt}`);
+      } else {
+        logAbandoned(session.state, `commitment-prepass-${attempt}-failed`);
+        try {
+          rmSync(SESSION_FILE, { force: true });
+        } catch {
+          /* cursor cache cleanup is best-effort */
+        }
+      }
+      throw error;
+    }
+    if (
+      !isOwnTurnResult(prepassResult.events, {
+        prompt,
+        sentNotBefore: prepassSentNotBefore,
+      })
+    ) {
+      logAbandoned(session.state, "commitment-prepass-stale-result");
+      try {
+        rmSync(SESSION_FILE, { force: true });
+      } catch {
+        /* cursor cache cleanup is best-effort */
+      }
+      throw new Error(
+        "commitment pre-pass result does not match the prompt just sent",
+      );
+    }
+    saveSession(session.state, sessionCreatedAt);
+    applied = commitmentPlanApplied(VAULT, completedDay);
+    if (!applied) {
+      console.error(
+        `rollup daily: commitment pre-pass ${attempt} did not apply (${commitmentPlanFailure(VAULT, completedDay)})`,
+      );
+    }
+  }
+  if (!applied) {
+    logAbandoned(session.state, "commitment-prepass-contract-failed");
+    try {
+      rmSync(SESSION_FILE, { force: true });
+    } catch {
+      /* cursor cache cleanup is best-effort */
+    }
+    throw new Error(
+      `commitment pre-pass failed after two attempts: ${commitmentPlanFailure(VAULT, completedDay)}`,
+    );
+  }
+}
+
 // Обход vercel/eve#2461: result() на резюмнутой сессии может вернуть чужой ход.
 // Nonce делает промпт уникальным для этого Rollup; guardedTurn сдвигает курсор
 // на хвост перед каждым send. Снять, когда eve свяжет result() с отправленным ходом.

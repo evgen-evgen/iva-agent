@@ -110,8 +110,9 @@ rather than an increasingly long rollup chat context.
 After each rollup, the runner checks that the raw day has a processing marker, the daily
 summary has the required frontmatter, autograph produced the graph and MOC, and the Delta
 launch-date change is represented with current truth plus history. In `ceo-schema` mode it
-also checks the expected number of open/done commitment cards after every day, validates
-their structured fields, and verifies the exact six-item final lifecycle state. These
+also requires a source-bound commitment plan that classifies every transcript section,
+checks the expected number of open/done commitment cards after every day, validates their
+structured fields, and verifies the exact six-item final lifecycle state. These
 checks are recorded in `artifact-validation.json`. If any fail, the runner still asks all
 questions and preserves every snapshot and answer, then exits with code `2` and marks
 `run.json` as `completed_with_artifact_failures`. This is a benchmark failure, not a lost run.
@@ -135,9 +136,10 @@ npm run eval:ceo-memory -- --mode stock --skip-questions
 npm run eval:ceo-memory -- --mode both
 ```
 
-`both` costs roughly twice as many model calls as `stock`, so it is intentionally not the
-default. The runner does not auto-grade answers; use the generated `review.md` together
-with `rubric.md`.
+`both` costs more than twice as many model calls as `stock`: CEO-schema adds one narrow
+commitment pre-pass per day and may retry it once after a contract failure. It is
+intentionally not the default. The runner does not auto-grade answers; use the generated
+`review.md` together with `rubric.md`.
 
 ## Intended experiment
 
@@ -151,12 +153,14 @@ The stock run is allowed to represent commitments inside existing `project`, `co
 
 Merge `schema-ceo-extension.json` into the test vault schema and repeat the identical week and questions.
 
-The overlay enables `meeting` and a structured `commitment` type. Every explicit promise
-with an owner, deliverable, and due date must go through `write_commitment`, whose
-fail-closed lifecycle owns creation, rescheduling, completion/cancellation, provenance,
-current truth, and append-only history. Generic `write_card` remains schema-driven for
-the other types. Old vaults without the overlay retain stock behavior; the new commitment
-tool refuses to write when `node_types.commitment` is absent.
+The overlay enables `meeting` and a structured `commitment` type. Before each general
+rollup, a narrow model turn must classify every H2 transcript section through one
+`submit_commitment_plan` call. The tool validates complete coverage, binds the plan to the
+source SHA-256, and deterministically applies lifecycle actions through `write_commitment`.
+Its fail-closed lifecycle owns creation, rescheduling, completion/cancellation,
+provenance, current truth, and append-only history. Missing, failed, incomplete, or stale
+plans prevent finalization. Generic `write_card` remains schema-driven for the other
+types. Old vaults without the overlay retain stock behavior and pay no extra model call.
 
 ## What v1 does not score
 

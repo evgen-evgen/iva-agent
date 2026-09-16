@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { defineTool } from "eve/tools";
 import { z } from "zod";
+import { commitmentDirectory } from "../lib/commitment-config.ts";
 import {
   acquireLock,
   atomicWrite,
@@ -21,8 +22,20 @@ import { isIsoCalendarDate, memoryWriteDate } from "../lib/memory-date.ts";
 // and new deadline/status in Compiled Truth.
 
 const VAULT = () => process.env.ASSISTANT_VAULT_DIR || "vault";
-const ACTIONS = ["create", "reschedule", "complete", "cancel", "noop"] as const;
-const SOURCE_ROLES = ["user", "forwarded", "external"] as const;
+export const COMMITMENT_ACTIONS = [
+  "create",
+  "reschedule",
+  "complete",
+  "cancel",
+  "noop",
+] as const;
+export const COMMITMENT_SOURCE_ROLES = [
+  "user",
+  "forwarded",
+  "external",
+] as const;
+const ACTIONS = COMMITMENT_ACTIONS;
+const SOURCE_ROLES = COMMITMENT_SOURCE_ROLES;
 type Action = (typeof ACTIONS)[number];
 type SourceRole = (typeof SOURCE_ROLES)[number];
 type CommitmentStatus = "open" | "done" | "cancelled";
@@ -53,46 +66,6 @@ const singleLine = (label: string) =>
     (value) => !/[\r\n]/.test(value),
     `${label} must be one line`,
   );
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function schemaPath(): string {
-  const candidates = [
-    join(VAULT(), "schema.json"),
-    join(VAULT(), ".claude", "skills", "autograph", "schema.json"),
-    join("scripts", "autograph", "schema.example.json"),
-  ];
-  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
-}
-
-function commitmentDirectory(): string | null {
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(schemaPath(), "utf8"));
-    if (!isRecord(parsed) || !isRecord(parsed.node_types)) return null;
-    if (!isRecord(parsed.node_types.commitment)) return null;
-    if (isRecord(parsed.card_type_dirs)) {
-      const configured = parsed.card_type_dirs.commitment;
-      if (
-        typeof configured === "string" &&
-        /^[\p{L}\p{N}._-]+$/u.test(configured.trim()) &&
-        ![".", ".."].includes(configured.trim())
-      ) {
-        return configured.trim();
-      }
-    }
-    if (isRecord(parsed.path_type_hints)) {
-      for (const [prefix, type] of Object.entries(parsed.path_type_hints)) {
-        const match = /^cards\/([^/]+)\/$/.exec(prefix);
-        if (type === "commitment" && match) return match[1];
-      }
-    }
-  } catch {
-    return null;
-  }
-  return null;
-}
 
 function field(fields: FmFields | null, key: string): string {
   const value = fields?.[key];
@@ -313,35 +286,41 @@ function validateOptionalIdentity(
   return null;
 }
 
+export const commitmentActionSchema = z.object({
+  action: z.enum(ACTIONS),
+  commitment_id: singleLine("commitment_id").describe(
+    "Stable kebab-case identity reused for every lifecycle transition",
+  ),
+  owner: singleLine("owner").optional(),
+  deliverable: singleLine("deliverable").optional(),
+  due_at: singleLine("due_at")
+    .optional()
+    .describe("ISO date or timestamp; required for create/reschedule"),
+  completed_at: singleLine("completed_at")
+    .optional()
+    .describe(
+      "Observed ISO timestamp; required for complete; never copy the deadline",
+    ),
+  title: singleLine("title").optional(),
+  source_role: z
+    .enum(SOURCE_ROLES)
+    .describe(
+      "Who supplied the explicit business fact; never use Iva inference",
+    ),
+  reason: singleLine("reason").optional(),
+  tags: z.array(singleLine("tag")).max(6).optional(),
+  related: z.array(singleLine("related")).max(8).optional(),
+});
+
+export type CommitmentActionInput = z.infer<typeof commitmentActionSchema>;
+
 export default defineTool({
   description:
     "Deterministically create and transition a structured commitment card when schema.json enables " +
     "type=commitment. Use for every explicit promise/obligation with owner, deliverable and due date. " +
     "Actions: create, reschedule, complete, cancel, noop. The tool owns status, current truth and History; " +
     "do not represent lifecycle changes with generic write_card.",
-  inputSchema: z.object({
-    action: z.enum(ACTIONS),
-    commitment_id: singleLine("commitment_id").describe(
-      "Stable kebab-case identity reused for every lifecycle transition",
-    ),
-    owner: singleLine("owner").optional(),
-    deliverable: singleLine("deliverable").optional(),
-    due_at: singleLine("due_at")
-      .optional()
-      .describe("ISO date or timestamp; required for create/reschedule"),
-    completed_at: singleLine("completed_at")
-      .optional()
-      .describe("ISO timestamp; required for complete"),
-    title: singleLine("title").optional(),
-    source_role: z
-      .enum(SOURCE_ROLES)
-      .describe(
-        "Who supplied the explicit business fact; never use Iva inference",
-      ),
-    reason: singleLine("reason").optional(),
-    tags: z.array(singleLine("tag")).max(6).optional(),
-    related: z.array(singleLine("related")).max(8).optional(),
-  }),
+  inputSchema: commitmentActionSchema,
   // eslint-disable-next-line @typescript-eslint/require-await -- Eve tools are async by contract.
   async execute(rawInput) {
     const input: Input = {
@@ -361,7 +340,7 @@ export default defineTool({
       related: rawInput.related?.map(clean),
     };
 
-    const directory = commitmentDirectory();
+    const directory = commitmentDirectory(VAULT());
     if (!directory) {
       return {
         ok: false,

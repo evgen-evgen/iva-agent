@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeFileAtomicSync } from "#lib/fs-atomic.ts";
+import { commitmentsEnabled } from "#lib/commitment-config.ts";
+import { requireAppliedCommitmentPlan } from "#lib/commitment-plan.ts";
 
 export interface FinalizerCommandResult {
   status: number | null;
@@ -87,10 +89,7 @@ function validateSummaryFrontmatter(text: string, date: string): void {
     ["tags", /^tags:\s*\[.*\]\s*$/m],
     ["status", /^status:\s*active\s*$/m],
     ["topics", /^topics:\s*\[.*\]\s*$/m],
-    [
-      "source",
-      new RegExp(`^source:\\s*daily/${date}\\.md\\s*$`, "m"),
-    ],
+    ["source", new RegExp(`^source:\\s*daily/${date}\\.md\\s*$`, "m")],
   ];
   const missing = required
     .filter(([, pattern]) => !pattern.test(frontmatter))
@@ -153,7 +152,9 @@ export function appendDailyProcessingMarker({
   );
   if (existing.test(raw)) return false;
   if (new RegExp(`<!-- processed: ${date}T`).test(raw)) {
-    throw new Error(`raw daily file has an incomplete processing marker: ${path}`);
+    throw new Error(
+      `raw daily file has an incomplete processing marker: ${path}`,
+    );
   }
 
   const summaryPath = join(vault, "summaries", "daily", `${date}.md`);
@@ -197,6 +198,7 @@ export function finalizeDailyMemory({
   now = new Date(),
   run = defaultRunner,
 }: FinalizeDailyMemoryOptions): void {
+  if (commitmentsEnabled(vault)) requireAppliedCommitmentPlan(vault, date);
   const summaryPath = ensureDailySummaryFrontmatter(vault, date);
   const schemaPath = join(vault, "schema.json");
 

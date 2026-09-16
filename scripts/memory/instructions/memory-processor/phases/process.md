@@ -12,13 +12,23 @@ Turn the CAPTURE plan into card files. Create new cards or update existing ones.
 ### Schema-enabled commitments
 
 Before the generic card flow, inspect `schema.json`. If it defines a `commitment` card
-type, extract every explicit promise/obligation with all three components:
+type, the scheduled rollup first runs a dedicated commitment pre-pass. Read its applied
+plan from `.memory/commitment-plans/YYYY-MM-DD.json` and treat that plan plus the resulting
+commitment cards as authoritative. Do not recreate the same commitment events in the
+generic pass.
+
+When running this skill outside the scheduled rollup and no applied plan exists, classify
+every H2 section in the source and call `submit_commitment_plan` exactly once. The plan
+must cover every section, even when most sections use `classification=none`. The tool
+then applies all lifecycle actions deterministically through `write_commitment`.
+
+An explicit promise/obligation has all three components:
 
 1. owner — who is accountable;
 2. deliverable — the observable result;
 3. due date/time — when it is due.
 
-Search `cards/commitments/` first and call `write_commitment` with one lifecycle action:
+The plan uses one or more lifecycle actions per relevant section:
 
 - `create` for a new explicit promise;
 - `reschedule` for an explicit deadline change;
@@ -31,7 +41,8 @@ time in ISO form; include the local UTC offset when the source gives a time. Use
 `source_role=user` for facts stated by the user, `forwarded` for quoted/forwarded
 participants, and `external` for an external source. Never convert an Iva inference into
 a commitment. The lifecycle tool owns current status and `## History`; do not send these
-cards through generic `write_card`.
+cards through generic `write_card`, and never replace an applied plan with a prose-only
+report.
 
 After processing the day, reread `cards/commitments/` and confirm that every explicit
 promise in the transcript has exactly one card and the latest lifecycle state.
