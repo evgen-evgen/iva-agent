@@ -134,11 +134,15 @@ export function createDoctorCommand(
         badN++;
       } else {
         // codex — доступ по OAuth-токену (data/codex-auth.json), у остальных — ключ в .env.
+        const telegramRequired =
+          String(env.TELEGRAM_ENABLED ?? "true").trim().toLowerCase() ===
+          "false"
+            ? []
+            : ["TELEGRAM_BOT_TOKEN", "TELEGRAM_ALLOWED_USER_IDS"];
         const required = [
           ...providerEnvKeys(provider),
           "DEEPGRAM_API_KEY",
-          "TELEGRAM_BOT_TOKEN",
-          "TELEGRAM_ALLOWED_USER_IDS",
+          ...telegramRequired,
           "ASSISTANT_BEARER",
         ];
         const missing = required.filter((key) => !(env[key] || "").trim());
