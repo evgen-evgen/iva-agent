@@ -143,6 +143,10 @@ function buildPrompt(p: Period, now: string, dailyTarget: string): string {
         `A card 'body' is facts only, with no H1/H2 headings: write_card builds the card ` +
         `structure itself (the title, '## Log', '## Related', '## History') and refuses a body ` +
         `that carries a heading of its own. ` +
+        `If schema.json defines a commitment card type, every explicit promise with owner, deliverable, ` +
+        `and due date MUST be materialized through write_commitment. Use its create/reschedule/complete/` +
+        `cancel lifecycle and reuse the same commitment_id; do not leave commitment state only in another ` +
+        `card or summary, and do not use generic write_card for commitment transitions. ` +
         `Never leave two contradictory Compiled Truths; History is append-only, never edited. ` +
         `Tag each fact's certainty with 'confidence:' — EXTRACTED (user stated it directly) or ` +
         `INFERRED (you deduced it). ` +

@@ -51,9 +51,28 @@ used — you are the enrichment.
 
 This table is the stock schema, not a closed ontology. A vault may define additional
 entity types through `schema.json` → `node_types` plus `card_type_dirs` (for example,
-`commitment` → `commitments`). When present, treat those schema-owned types exactly like
-the stock card types: use their descriptions and status enums, and write them through
-`write_card`. Summary types still belong only to the rollup.
+`commitment` → `commitments`). Use their descriptions and status enums. Most custom
+types use `write_card`; `commitment` is special because its lifecycle is owned by
+`write_commitment`. Summary types still belong only to the rollup.
+
+### Commitment contract (only when schema enables `commitment`)
+
+Every explicit promise or obligation that has an owner, a deliverable, and a due date
+MUST become a commitment card through `write_commitment`. It is not enough to mention it
+in a contact/project card or only in the daily summary.
+
+- `create` when the promise is made;
+- `reschedule` when its due date changes;
+- `complete` when delivery is explicitly confirmed;
+- `cancel` when the obligation is explicitly withdrawn;
+- `noop` only when the exact state is already stored.
+
+Reuse the same stable, descriptive `commitment_id` for every transition (for example,
+`ivan-petrov-nordsupply-api-access`). The tool owns `status`, current truth, provenance,
+and append-only `## History`; never use generic `write_card` for a commitment lifecycle
+change. An Iva opinion or inference is never a commitment and must not be materialized as
+one. Requests without an accepted promise stay in the transcript unless another source
+explicitly establishes the obligation.
 
 Always pick `type` and `status` from `schema.json` → `node_types`. Never invent a status.
 
@@ -61,9 +80,10 @@ Always pick `type` and `status` from `schema.json` → `node_types`. Never inven
 
 1. **CAPTURE** (`phases/capture.md`) — read the transcript, segment it, and decide
    what is noteworthy: which entities, decisions, ideas, and topics the day produced.
-2. **PROCESS** (`phases/process.md`) — create / update cards for the noteworthy items,
-   choosing exactly one `ADD | UPDATE | SUPERSEDE | NOOP` operation, then type +
-   description-snippet + tags + status; dedup against existing cards.
+2. **PROCESS** (`phases/process.md`) — materialize schema-enabled commitments through
+   their lifecycle tool; create / update other cards by choosing exactly one
+   `ADD | UPDATE | SUPERSEDE | NOOP` operation, then type + description-snippet + tags +
+   status; dedup against existing cards.
 3. **LINK** (`phases/link.md`) — wire every new card to its domain hub + 2–3 neighbors.
 4. **SUMMARIZE** (`phases/summarize.md`) — write the daily-summary card: the day's
    TOPICS plus a MOC linking up to the week, down to the created cards, and down to
@@ -98,6 +118,9 @@ A failed mechanical command fails the rollup and leaves the day unmarked for a s
 - **One structure per card.** Exactly one `## Log` and one `## Related`; never emit
   dated `## Обновление` / `## Update` headings. Pass relations only through the
   `write_card.related` argument, never inside `body`.
+- **Commitments are tool-owned state.** If `schema.json` enables `commitment`, reread
+  `cards/commitments/` before each lifecycle transition and use `write_commitment`.
+  Never edit those cards with `write_file` or generic `write_card`.
 - **Verify writes.** Reread every created or updated card before finishing. Confirm
   one Log, one Related, no empty/dated update headings, and that Compiled Truth says
   what is true now. A failed invariant keeps the rollup unfinished.

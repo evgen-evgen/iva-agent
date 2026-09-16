@@ -1,6 +1,12 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { createWriteStream, existsSync, readFileSync, statSync } from "node:fs";
+import {
+  createWriteStream,
+  existsSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+} from "node:fs";
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { dirname, isAbsolute, join, resolve } from "node:path";
@@ -11,6 +17,7 @@ import {
   MEMORY_EVAL_MODE_ENV,
 } from "../../agent/lib/memory-date.ts";
 import { resolveModelProvider } from "../../agent/lib/model-provider.ts";
+import { parseFrontmatter } from "../../agent/lib/frontmatter.ts";
 
 type Mode = "stock" | "ceo-schema";
 type RequestedMode = Mode | "both";
@@ -512,6 +519,7 @@ function issue(
 export async function validateDailyArtifacts(
   vault: string,
   date: string,
+  mode: Mode = "stock",
 ): Promise<ArtifactIssue[]> {
   const issues: ArtifactIssue[] = [];
   const rawRelative = `daily/${date}.md`;
@@ -663,6 +671,323 @@ export async function validateDailyArtifacts(
     }
   }
 
+  if (mode === "ceo-schema") {
+    issues.push(...(await validateCeoCommitments(vault, date)));
+  }
+
+  return issues;
+}
+
+type CommitmentArtifact = {
+  path: string;
+  id: string;
+  owner: string;
+  deliverable: string;
+  dueAt: string;
+  completedAt: string;
+  status: string;
+  fields: Record<string, string | string[]>;
+  body: string;
+};
+
+const EXPECTED_COMMITMENT_COUNTS: Record<
+  string,
+  { total: number; open: number; done: number }
+> = {
+  "2026-09-07": { total: 3, open: 3, done: 0 },
+  "2026-09-08": { total: 5, open: 4, done: 1 },
+  "2026-09-09": { total: 5, open: 3, done: 2 },
+  "2026-09-10": { total: 5, open: 3, done: 2 },
+  "2026-09-11": { total: 6, open: 1, done: 5 },
+};
+
+function scalar(
+  fields: Record<string, string | string[]> | null,
+  key: string,
+): string {
+  const value = fields?.[key];
+  return typeof value === "string" ? value : "";
+}
+
+function validCommitmentMoment(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:\d{2})?)?$/.test(
+    value,
+  );
+}
+
+function minute(value: string): string {
+  return value.slice(0, 16);
+}
+
+function normalized(value: string): string {
+  return value.toLocaleLowerCase("ru-RU");
+}
+
+function matchesText(value: string, patterns: RegExp[]): boolean {
+  const candidate = normalized(value);
+  return patterns.every((pattern) => pattern.test(candidate));
+}
+
+export async function validateCeoCommitments(
+  vault: string,
+  date: string,
+): Promise<ArtifactIssue[]> {
+  const issues: ArtifactIssue[] = [];
+  const relativeDir = "cards/commitments";
+  const directory = join(vault, relativeDir);
+  const expected = EXPECTED_COMMITMENT_COUNTS[date];
+  const cards: CommitmentArtifact[] = [];
+
+  if (!existsSync(directory)) {
+    return [
+      issue(
+        date,
+        "missing-commitment-directory",
+        relativeDir,
+        "CEO schema requires structured commitment cards, but the directory is missing.",
+      ),
+    ];
+  }
+
+  for (const name of readdirSync(directory).filter((entry) =>
+    entry.endsWith(".md"),
+  )) {
+    const relativePath = `${relativeDir}/${name}`;
+    const content = await readFile(join(directory, name), "utf8");
+    const parsed = parseFrontmatter(content);
+    if (!parsed.fields || scalar(parsed.fields, "type") !== "commitment") {
+      issues.push(
+        issue(
+          date,
+          "invalid-commitment-type",
+          relativePath,
+          "Commitment file must have type=commitment frontmatter.",
+        ),
+      );
+      continue;
+    }
+    const card: CommitmentArtifact = {
+      path: relativePath,
+      id: scalar(parsed.fields, "commitment_id"),
+      owner: scalar(parsed.fields, "owner"),
+      deliverable: scalar(parsed.fields, "deliverable"),
+      dueAt: scalar(parsed.fields, "due_at"),
+      completedAt: scalar(parsed.fields, "completed_at"),
+      status: scalar(parsed.fields, "status"),
+      fields: parsed.fields,
+      body: parsed.body,
+    };
+    cards.push(card);
+
+    for (const field of [
+      "commitment_id",
+      "owner",
+      "deliverable",
+      "due_at",
+      "status",
+      "source",
+      "source_role",
+      "last_source",
+      "last_source_role",
+    ]) {
+      if (!scalar(parsed.fields, field)) {
+        issues.push(
+          issue(
+            date,
+            `missing-commitment-${field.replaceAll("_", "-")}`,
+            relativePath,
+            `Structured commitment is missing ${field}.`,
+          ),
+        );
+      }
+    }
+    if (!validCommitmentMoment(card.dueAt)) {
+      issues.push(
+        issue(
+          date,
+          "invalid-commitment-due-at",
+          relativePath,
+          "due_at must be an ISO date or timestamp.",
+        ),
+      );
+    }
+    if (!["open", "done", "cancelled"].includes(card.status)) {
+      issues.push(
+        issue(
+          date,
+          "invalid-commitment-status",
+          relativePath,
+          `Unexpected commitment status: ${card.status || "(empty)"}.`,
+        ),
+      );
+    }
+    if (card.status === "done") {
+      if (!validCommitmentMoment(card.completedAt)) {
+        issues.push(
+          issue(
+            date,
+            "invalid-commitment-completed-at",
+            relativePath,
+            "A done commitment must have an ISO completed_at timestamp.",
+          ),
+        );
+      }
+      if (!/^## History\s*$/m.test(card.body)) {
+        issues.push(
+          issue(
+            date,
+            "missing-commitment-history",
+            relativePath,
+            "A completed commitment must preserve its lifecycle transition in History.",
+          ),
+        );
+      }
+    } else if (card.completedAt) {
+      issues.push(
+        issue(
+          date,
+          "unexpected-commitment-completed-at",
+          relativePath,
+          "Only a done commitment may have completed_at.",
+        ),
+      );
+    }
+  }
+
+  if (expected) {
+    const open = cards.filter((card) => card.status === "open").length;
+    const done = cards.filter((card) => card.status === "done").length;
+    if (
+      cards.length !== expected.total ||
+      open !== expected.open ||
+      done !== expected.done
+    ) {
+      issues.push(
+        issue(
+          date,
+          "unexpected-commitment-lifecycle-counts",
+          relativeDir,
+          `Expected total/open/done ${expected.total}/${expected.open}/${expected.done}; got ${cards.length}/${open}/${done}.`,
+        ),
+      );
+    }
+  }
+
+  const ids = cards.map((card) => card.id).filter(Boolean);
+  if (new Set(ids).size !== ids.length) {
+    issues.push(
+      issue(
+        date,
+        "duplicate-commitment-id",
+        relativeDir,
+        "commitment_id must be unique across the vault.",
+      ),
+    );
+  }
+
+  if (date === "2026-09-11") {
+    const finalExpected = [
+      {
+        label: "Marina proposal",
+        owner: [/marina|марина/],
+        deliverable: [/proposal|предложен|коммерческ|\bкп\b/],
+        status: "done",
+        completedAt: "2026-09-08T16:42",
+      },
+      {
+        label: "Ivan API access",
+        owner: [/ivan|иван/, /petrov|петров/],
+        deliverable: [/api|апи/, /access|доступ/],
+        status: "done",
+        completedAt: "2026-09-11T11:40",
+      },
+      {
+        label: "NordSupply credentials",
+        owner: [/nordsupply|нордсапплай/],
+        deliverable: [/credential|учетн|доступ|реквизит/],
+        status: "done",
+        completedAt: "2026-09-11T09:18",
+      },
+      {
+        label: "Oleg cash-flow",
+        owner: [/oleg|олег/, /smirnov|смирнов/],
+        deliverable: [/cash.?flow|денежн|кэш/],
+        status: "done",
+        dueAt: "2026-09-11T14:00",
+        completedAt: "2026-09-11T13:30",
+      },
+      {
+        label: "Oleg margin check",
+        owner: [/oleg|олег/, /smirnov|смирнов/],
+        deliverable: [/margin|марж/],
+        status: "done",
+        completedAt: "2026-09-09T08:10",
+      },
+      {
+        label: "Marina contract",
+        owner: [/marina|марина/, /volkova|волкова/],
+        deliverable: [/contract|договор/],
+        status: "open",
+        dueAt: "2026-09-14T16:00",
+      },
+    ] as const;
+
+    for (const expectedCard of finalExpected) {
+      const card = cards.find(
+        (candidate) =>
+          matchesText(candidate.owner, [...expectedCard.owner]) &&
+          matchesText(candidate.deliverable, [...expectedCard.deliverable]),
+      );
+      if (!card) {
+        issues.push(
+          issue(
+            date,
+            "missing-expected-commitment",
+            relativeDir,
+            `Missing final commitment: ${expectedCard.label}.`,
+          ),
+        );
+        continue;
+      }
+      if (card.status !== expectedCard.status) {
+        issues.push(
+          issue(
+            date,
+            "incorrect-commitment-final-status",
+            card.path,
+            `${expectedCard.label} must be ${expectedCard.status}, got ${card.status}.`,
+          ),
+        );
+      }
+      if (
+        "dueAt" in expectedCard &&
+        minute(card.dueAt) !== expectedCard.dueAt
+      ) {
+        issues.push(
+          issue(
+            date,
+            "incorrect-commitment-final-due-at",
+            card.path,
+            `${expectedCard.label} must be due ${expectedCard.dueAt}, got ${card.dueAt}.`,
+          ),
+        );
+      }
+      if (
+        "completedAt" in expectedCard &&
+        minute(card.completedAt) !== expectedCard.completedAt
+      ) {
+        issues.push(
+          issue(
+            date,
+            "incorrect-commitment-final-completed-at",
+            card.path,
+            `${expectedCard.label} must be completed ${expectedCard.completedAt}, got ${card.completedAt}.`,
+          ),
+        );
+      }
+    }
+  }
+
   return issues;
 }
 
@@ -690,6 +1015,7 @@ async function writeArtifactValidation(
 async function processWeek(
   modeDir: string,
   scenario: Scenario,
+  mode: Mode,
 ): Promise<ArtifactIssue[]> {
   const vault = join(modeDir, "vault");
   const data = join(modeDir, "data");
@@ -728,13 +1054,13 @@ async function processWeek(
           join(modeDir, `rollup-${date}.log`),
         );
       } catch (error) {
-        const dailyIssues = await validateDailyArtifacts(vault, date);
+        const dailyIssues = await validateDailyArtifacts(vault, date, mode);
         artifactIssues.push(...dailyIssues);
         checkedDates.push(date);
         await writeArtifactValidation(modeDir, checkedDates, artifactIssues);
         throw error;
       }
-      const dailyIssues = await validateDailyArtifacts(vault, date);
+      const dailyIssues = await validateDailyArtifacts(vault, date, mode);
       artifactIssues.push(...dailyIssues);
       checkedDates.push(date);
       await writeArtifactValidation(modeDir, checkedDates, artifactIssues);
@@ -858,7 +1184,7 @@ async function runMode(
 ): Promise<ArtifactIssue[]> {
   const modeDir = await prepareMode(root, mode);
   if (options.prepareOnly) return [];
-  const artifactIssues = await processWeek(modeDir, scenario);
+  const artifactIssues = await processWeek(modeDir, scenario, mode);
   if (options.skipQuestions) return artifactIssues;
   const answers = await askQuestions(modeDir, scenario, questions);
   await writeFile(

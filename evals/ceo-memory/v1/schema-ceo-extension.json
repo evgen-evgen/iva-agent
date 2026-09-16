@@ -1,5 +1,5 @@
 {
-  "_comment": "Merge overlay for benchmark Run B. write_card reads these schema-configured card types and folders at server startup.",
+  "_comment": "Merge overlay for benchmark Run B. Commitments are materialized and transitioned only through write_commitment; write_card remains available for the other schema-owned card types.",
   "node_types": {
     "meeting": {
       "description": "A scheduled or completed business conversation with participants, outcomes, and source context",
@@ -7,9 +7,22 @@
       "status": ["scheduled", "completed", "cancelled", "superseded"]
     },
     "commitment": {
-      "description": "A promise or obligation with an owner, deliverable, lifecycle, and optional due date",
-      "required": ["description", "tags", "status"],
-      "status": ["open", "done", "cancelled", "superseded"]
+      "description": "An explicit promise or obligation with a stable identity, owner, deliverable, due time, provenance, and deterministic lifecycle",
+      "required": [
+        "description",
+        "tags",
+        "status",
+        "commitment_id",
+        "owner",
+        "deliverable",
+        "due_at",
+        "completed_at",
+        "source",
+        "source_role",
+        "last_source",
+        "last_source_role"
+      ],
+      "status": ["open", "done", "cancelled"]
     }
   },
   "card_type_dirs": {

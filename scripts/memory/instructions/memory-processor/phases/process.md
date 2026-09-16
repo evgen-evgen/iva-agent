@@ -9,6 +9,35 @@ Turn the CAPTURE plan into card files. Create new cards or update existing ones.
 
 ## Steps
 
+### Schema-enabled commitments
+
+Before the generic card flow, inspect `schema.json`. If it defines a `commitment` card
+type, extract every explicit promise/obligation with all three components:
+
+1. owner — who is accountable;
+2. deliverable — the observable result;
+3. due date/time — when it is due.
+
+Search `cards/commitments/` first and call `write_commitment` with one lifecycle action:
+
+- `create` for a new explicit promise;
+- `reschedule` for an explicit deadline change;
+- `complete` for confirmed delivery;
+- `cancel` for explicit withdrawal;
+- `noop` if that exact state is already stored.
+
+Use a stable descriptive `commitment_id` and reuse it on later days. Preserve the source
+time in ISO form; include the local UTC offset when the source gives a time. Use
+`source_role=user` for facts stated by the user, `forwarded` for quoted/forwarded
+participants, and `external` for an external source. Never convert an Iva inference into
+a commitment. The lifecycle tool owns current status and `## History`; do not send these
+cards through generic `write_card`.
+
+After processing the day, reread `cards/commitments/` and confirm that every explicit
+promise in the transcript has exactly one card and the latest lifecycle state.
+
+### Generic cards
+
 For each item:
 
 1. **Dedup first.** Search for an existing card before creating one:

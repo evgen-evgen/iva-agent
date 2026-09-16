@@ -175,9 +175,12 @@ function loadSchema(): {
 }
 
 const SCHEMA = loadSchema();
-// Типы карточек, которые модель создаёт интерактивно. Summary-типы не попадают сюда:
-// их пути не объявлены в schema.card_type_dirs / cards/* path hints.
-const CARD_TYPE_DIR = SCHEMA.cardTypeDir;
+// Generic card types the model creates interactively. Summary types never enter this
+// map, and commitments are excluded because write_commitment exclusively owns their
+// state machine and provenance.
+const CARD_TYPE_DIR = Object.fromEntries(
+  Object.entries(SCHEMA.cardTypeDir).filter(([type]) => type !== "commitment"),
+);
 const CARD_TYPES = Object.keys(CARD_TYPE_DIR) as [string, ...string[]];
 
 // Алиасы типов из схемы применяются ДО валидации: описание поля обещает person/company →

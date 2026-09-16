@@ -17,6 +17,7 @@ import {
   normalizeQuestionResult,
   parseArgs,
   resetDailyRollupSession,
+  validateCeoCommitments,
   resolveCodexAuthDataDir,
   validateDailyArtifacts,
 } from "./benchmark.ts";
@@ -213,4 +214,106 @@ test("artifact validator exposes skipped mechanical and supersede work", async (
     "stale-moc",
     "missing-delta-history",
   ]);
+});
+
+function commitmentCard(input: {
+  id: string;
+  owner: string;
+  deliverable: string;
+  dueAt: string;
+  status: "open" | "done";
+  completedAt?: string;
+}): string {
+  return `---
+type: commitment
+description: ${input.owner} commitment
+tags: [commitment]
+status: ${input.status}
+commitment_id: ${input.id}
+owner: ${input.owner}
+deliverable: ${input.deliverable}
+due_at: ${input.dueAt}
+completed_at: ${input.completedAt ?? ""}
+source: daily/2026-09-07.md
+source_role: user
+last_source: daily/2026-09-11.md
+last_source_role: user
+confidence: EXTRACTED
+---
+# ${input.owner}
+
+Owner: ${input.owner}
+Deliverable: ${input.deliverable}
+Due: ${input.dueAt}
+Status: ${input.status}
+${input.status === "done" ? "\n## History\n\n- 2026-09-11: complete; status open -> done\n" : ""}`;
+}
+
+test("CEO commitment validator accepts the exact final lifecycle state", async () => {
+  const vault = tempDir();
+  const directory = join(vault, "cards", "commitments");
+  mkdirSync(directory, { recursive: true });
+  const cards = [
+    {
+      id: "marina-acme-proposal",
+      owner: "Marina Volkova",
+      deliverable: "Send updated commercial proposal to Acme",
+      dueAt: "2026-09-08T17:00:00+02:00",
+      status: "done" as const,
+      completedAt: "2026-09-08T16:42:00+02:00",
+    },
+    {
+      id: "ivan-petrov-nordsupply-api-access",
+      owner: "Ivan Petrov",
+      deliverable: "Obtain working NordSupply API access",
+      dueAt: "2026-09-09T12:00:00+02:00",
+      status: "done" as const,
+      completedAt: "2026-09-11T11:40:00+02:00",
+    },
+    {
+      id: "nordsupply-api-credentials",
+      owner: "NordSupply",
+      deliverable: "Provide API credentials",
+      dueAt: "2026-09-11T10:00:00+02:00",
+      status: "done" as const,
+      completedAt: "2026-09-11T09:18:00+02:00",
+    },
+    {
+      id: "oleg-delta-cash-flow",
+      owner: "Oleg Smirnov",
+      deliverable: "Provide Delta cash-flow forecast",
+      dueAt: "2026-09-11T14:00:00+02:00",
+      status: "done" as const,
+      completedAt: "2026-09-11T13:30:00+02:00",
+    },
+    {
+      id: "oleg-acme-margin",
+      owner: "Oleg Smirnov",
+      deliverable: "Confirm margin for Acme price validity",
+      dueAt: "2026-09-09T10:00:00+02:00",
+      status: "done" as const,
+      completedAt: "2026-09-09T08:10:00+02:00",
+    },
+    {
+      id: "marina-acme-contract",
+      owner: "Marina Volkova",
+      deliverable: "Send the Acme contract",
+      dueAt: "2026-09-14T16:00:00+02:00",
+      status: "open" as const,
+    },
+  ];
+  for (const card of cards) {
+    writeFileSync(join(directory, `${card.id}.md`), commitmentCard(card));
+  }
+
+  assert.deepEqual(await validateCeoCommitments(vault, "2026-09-11"), []);
+});
+
+test("CEO commitment validator exposes missing materialization", async () => {
+  const vault = tempDir();
+  const issues = await validateCeoCommitments(vault, "2026-09-07");
+  assert.deepEqual(
+    issues.map(({ code }) => code),
+    ["missing-commitment-directory"],
+  );
 });

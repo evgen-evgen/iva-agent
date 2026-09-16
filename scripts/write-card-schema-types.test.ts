@@ -29,12 +29,19 @@ const schema = JSON.parse(readFileSync(schemaPath, "utf8")) as {
   card_type_dirs: Record<string, string>;
   path_type_hints: Record<string, string>;
 };
+schema.node_types.meeting = {
+  description: "A business conversation",
+  required: ["description", "tags", "status"],
+  status: ["scheduled", "completed", "cancelled"],
+};
 schema.node_types.commitment = {
   description: "A promise with an owner and lifecycle",
   required: ["description", "tags", "status"],
-  status: ["open", "done", "cancelled", "superseded"],
+  status: ["open", "done", "cancelled"],
 };
+schema.card_type_dirs.meeting = "meetings";
 schema.card_type_dirs.commitment = "commitments";
+schema.path_type_hints["cards/meetings/"] = "meeting";
 schema.path_type_hints["cards/commitments/"] = "commitment";
 writeFileSync(schemaPath, `${JSON.stringify(schema, null, 2)}\n`, "utf8");
 
@@ -49,23 +56,23 @@ const testTool = writeCard as unknown as {
   execute: (input: WriteCardInput) => Promise<unknown>;
 };
 
-test("write_card accepts a schema-configured commitment type and folder", async () => {
+test("write_card accepts a schema-configured generic type and folder", async () => {
   const result = (await testTool.execute(
     inputSchema.parse({
       operation: "ADD",
-      type: "commitment",
-      title: "Марина — договор Acme",
-      description: "Марина отправит договор Acme до 14 сентября",
-      tags: ["acme", "commitment"],
-      status: "open",
-      body: "Владелец: Марина. Срок: 2026-09-14 16:00.",
+      type: "meeting",
+      title: "Delta weekly",
+      description: "Weekly project review",
+      tags: ["delta", "meeting"],
+      status: "completed",
+      body: "The team reviewed Delta.",
     }),
   )) as { ok: boolean; file: string; status: string; type: string };
 
   assert.equal(result.ok, true);
-  assert.equal(result.type, "commitment");
-  assert.equal(result.status, "open");
-  assert.match(result.file, /^cards\/commitments\//);
+  assert.equal(result.type, "meeting");
+  assert.equal(result.status, "completed");
+  assert.match(result.file, /^cards\/meetings\//);
   assert.equal(existsSync(join(VAULT, result.file)), true);
 });
 
@@ -73,10 +80,10 @@ test("write_card validates custom statuses from the vault schema", async () => {
   const result = (await testTool.execute(
     inputSchema.parse({
       operation: "ADD",
-      type: "commitment",
-      title: "Invalid commitment",
+      type: "meeting",
+      title: "Invalid meeting",
       description: "Must not accept an invented type lifecycle",
-      tags: ["commitment"],
+      tags: ["meeting"],
       status: "waiting-on-magic",
       body: "Invalid status.",
     }),
@@ -84,4 +91,18 @@ test("write_card validates custom statuses from the vault schema", async () => {
 
   assert.equal(result.ok, false);
   assert.match(result.error, /Недопустимый status/);
+});
+
+test("write_card refuses commitment lifecycle writes", async () => {
+  assert.throws(() =>
+    inputSchema.parse({
+      operation: "ADD",
+      type: "commitment",
+      title: "Marina — Acme contract",
+      description: "Marina will send the Acme contract",
+      tags: ["commitment"],
+      status: "open",
+      body: "Owner: Marina. Due: 2026-09-14T16:00:00+02:00.",
+    }),
+  );
 });

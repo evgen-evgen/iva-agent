@@ -109,10 +109,12 @@ rather than an increasingly long rollup chat context.
 
 After each rollup, the runner checks that the raw day has a processing marker, the daily
 summary has the required frontmatter, autograph produced the graph and MOC, and the Delta
-launch-date change is represented with current truth plus history. These checks are
-recorded in `artifact-validation.json`. If any fail, the runner still asks all questions
-and preserves every snapshot and answer, then exits with code `2` and marks `run.json` as
-`completed_with_artifact_failures`. This is a benchmark failure, not a lost run.
+launch-date change is represented with current truth plus history. In `ceo-schema` mode it
+also checks the expected number of open/done commitment cards after every day, validates
+their structured fields, and verifies the exact six-item final lifecycle state. These
+checks are recorded in `artifact-validation.json`. If any fail, the runner still asks all
+questions and preserves every snapshot and answer, then exits with code `2` and marks
+`run.json` as `completed_with_artifact_failures`. This is a benchmark failure, not a lost run.
 If a rollup itself aborts, `run.json` is finalized with `status: failed`, the failed
 mode, and the error message; partial logs and earlier snapshots remain available.
 
@@ -149,7 +151,12 @@ The stock run is allowed to represent commitments inside existing `project`, `co
 
 Merge `schema-ceo-extension.json` into the test vault schema and repeat the identical week and questions.
 
-`write_card` now loads writable card types and their folders from `schema.json.card_type_dirs` at server startup. Old vaults without that field retain the five stock types through a compatibility fallback.
+The overlay enables `meeting` and a structured `commitment` type. Every explicit promise
+with an owner, deliverable, and due date must go through `write_commitment`, whose
+fail-closed lifecycle owns creation, rescheduling, completion/cancellation, provenance,
+current truth, and append-only history. Generic `write_card` remains schema-driven for
+the other types. Old vaults without the overlay retain stock behavior; the new commitment
+tool refuses to write when `node_types.commitment` is absent.
 
 ## What v1 does not score
 
