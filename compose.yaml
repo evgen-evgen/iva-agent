@@ -1,0 +1,33 @@
+services:
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:v0.11.3
+    container_name: iva-open-webui
+    network_mode: host
+    environment:
+      HOST: 127.0.0.1
+      PORT: ${OPEN_WEBUI_PORT:-3000}
+      WEBUI_URL: http://127.0.0.1:${OPEN_WEBUI_PORT:-3000}
+      WEBUI_SECRET_KEY: ${OPEN_WEBUI_SECRET_KEY:?Set OPEN_WEBUI_SECRET_KEY in .env}
+      ENABLE_OLLAMA_API: "False"
+      ENABLE_OPENAI_API: "True"
+      OPENAI_API_BASE_URL: http://127.0.0.1:${IVA_PORT:-8723}/v1
+      OPENAI_API_KEY: ${OPEN_WEBUI_API_KEY:?Set OPEN_WEBUI_API_KEY in .env}
+      ENABLE_FORWARD_USER_INFO_HEADERS: "True"
+      # These jobs normally reuse the selected model. Iva is stateful, so a title/tag
+      # request would become a real agent turn and pollute both its history and vault.
+      ENABLE_TITLE_GENERATION: "False"
+      ENABLE_TAGS_GENERATION: "False"
+      ENABLE_FOLLOW_UP_GENERATION: "False"
+      ENABLE_AUTOCOMPLETE_GENERATION: "False"
+      ENABLE_SEARCH_QUERY_GENERATION: "False"
+      ENABLE_RETRIEVAL_QUERY_GENERATION: "False"
+      AIOHTTP_CLIENT_TIMEOUT: "3600"
+      SCARF_NO_ANALYTICS: "True"
+      DO_NOT_TRACK: "True"
+      ANONYMIZED_TELEMETRY: "False"
+    volumes:
+      - open-webui-data:/app/backend/data
+    restart: unless-stopped
+
+volumes:
+  open-webui-data:

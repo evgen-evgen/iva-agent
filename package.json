@@ -17,6 +17,7 @@
     "build:core": "eve build",
     "dev": "eve dev",
     "start": "eve start",
+    "start:ui": "node --env-file=.env scripts/start-ui.mjs",
     "init-vault": "node scripts/init-vault.mjs",
     "replica": "node scripts/replica-smoke.ts",
     "digest": "node scripts/daily-digest.ts",

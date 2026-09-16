@@ -47,7 +47,8 @@ For `codex` there is no API key in `.env`: run `iva login` (device code, headles
 
 | Variable                        | Default   | Notes                                                                                                                      |
 | ------------------------------- | --------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `TELEGRAM_BOT_TOKEN`            | —         | From [@BotFather](https://t.me/BotFather).                                                                                 |
+| `TELEGRAM_ENABLED`              | `true`    | Set to `false` for browser-only mode. The poller exits without contacting Telegram and Telegram credentials become optional. |
+| `TELEGRAM_BOT_TOKEN`            | —         | From [@BotFather](https://t.me/BotFather). Required only when Telegram is enabled.                                         |
 | `TELEGRAM_BOT_USERNAME`         | —         | Your bot's username. The wizard verifies the token via `getMe` and detects this itself.                                    |
 | `TELEGRAM_WEBHOOK_SECRET_TOKEN` | —         | Shared secret between the long-poll bridge and the local webhook. Any long random string.                                  |
 | `TELEGRAM_ALLOWED_USER_IDS`     | _(empty)_ | Comma-separated numeric user IDs allowed to talk to Iva.                                                                   |
