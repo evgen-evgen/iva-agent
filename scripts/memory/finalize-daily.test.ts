@@ -46,10 +46,7 @@ test("prepare step deterministically creates the supersede input", () => {
   const run: FinalizerCommandRunner = (_command, args) => {
     commands.push(basename(args[1]));
     mkdirSync(join(vault, ".graph"), { recursive: true });
-    writeFileSync(
-      join(vault, ".graph", "supersede-candidates.json"),
-      "[]\n",
-    );
+    writeFileSync(join(vault, ".graph", "supersede-candidates.json"), "[]\n");
     return { status: 0 };
   };
 
@@ -57,10 +54,7 @@ test("prepare step deterministically creates the supersede input", () => {
 
   assert.deepEqual(commands, ["supersede.py"]);
   assert.equal(
-    readFileSync(
-      join(vault, ".graph", "supersede-candidates.json"),
-      "utf8",
-    ),
+    readFileSync(join(vault, ".graph", "supersede-candidates.json"), "utf8"),
     "[]\n",
   );
 });

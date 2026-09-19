@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   rmSync,
@@ -16,6 +17,7 @@ import {
   failedRunRecord,
   normalizeQuestionResult,
   parseArgs,
+  prepareIsolatedBenchmarkApp,
   resetDailyRollupSession,
   validateCeoCommitments,
   resolveCodexAuthDataDir,
@@ -164,6 +166,31 @@ test("each synthetic day discards the previous rollup session cursor", async () 
   await resetDailyRollupSession(data);
 
   assert.equal(existsSync(cursor), false);
+});
+
+test("benchmark app root excludes live state and reuses installed dependencies", async () => {
+  const source = tempDir();
+  const target = join(tempDir(), "app");
+  mkdirSync(join(source, "agent"), { recursive: true });
+  mkdirSync(join(source, ".eve", ".workflow-data"), { recursive: true });
+  mkdirSync(join(source, "data"), { recursive: true });
+  mkdirSync(join(source, "vault"), { recursive: true });
+  mkdirSync(join(source, "node_modules"), { recursive: true });
+  writeFileSync(join(source, "agent", "index.ts"), "export {};\n");
+  writeFileSync(join(source, ".env"), "SECRET=live\n");
+  writeFileSync(join(source, ".eve", ".workflow-data", "run"), "active\n");
+  writeFileSync(join(source, "data", "cursor.json"), "{}\n");
+  writeFileSync(join(source, "vault", "CORE.md"), "live\n");
+
+  await prepareIsolatedBenchmarkApp(source, target);
+
+  assert.equal(existsSync(join(target, "agent", "index.ts")), true);
+  assert.equal(existsSync(join(target, ".env")), false);
+  assert.equal(existsSync(join(target, ".eve")), false);
+  assert.equal(existsSync(join(target, "data")), false);
+  assert.equal(existsSync(join(target, "vault")), false);
+  assert.equal(existsSync(join(target, "node_modules")), true);
+  assert.equal(lstatSync(join(target, "node_modules")).isSymbolicLink(), true);
 });
 
 test("artifact validator accepts a complete daily memory contract", async () => {

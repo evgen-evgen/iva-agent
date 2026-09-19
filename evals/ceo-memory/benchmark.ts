@@ -7,9 +7,19 @@ import {
   readdirSync,
   statSync,
 } from "node:fs";
-import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { createServer } from "node:net";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Client } from "eve/client";
 import {
@@ -18,6 +28,7 @@ import {
 } from "../../agent/lib/memory-date.ts";
 import { resolveModelProvider } from "../../agent/lib/model-provider.ts";
 import { parseFrontmatter } from "../../agent/lib/frontmatter.ts";
+import { retireMemoryEvalSession } from "../../scripts/lib/eval-session.ts";
 
 type Mode = "stock" | "ceo-schema";
 type RequestedMode = Mode | "both";
@@ -96,6 +107,13 @@ const TURN_TIMEOUT_MS = 180_000;
 const SERVER_TIMEOUT_MS = 90_000;
 const CODEX_AUTH_DATA_DIR_ENV = "IVA_CODEX_AUTH_DATA_DIR";
 const DAILY_ROLLUP_SESSION_FILE = "rollup-session-daily.json";
+const ISOLATED_APP_EXCLUDES = new Set([
+  ".git",
+  ".eve",
+  "data",
+  "node_modules",
+  "vault",
+]);
 
 export function failedRunRecord(
   runRecord: Record<string, unknown>,
@@ -248,6 +266,25 @@ async function prepareMode(root: string, mode: Mode): Promise<string> {
   return modeDir;
 }
 
+export async function prepareIsolatedBenchmarkApp(
+  sourceRoot: string,
+  targetRoot: string,
+): Promise<void> {
+  await cp(sourceRoot, targetRoot, {
+    recursive: true,
+    filter: (source) => {
+      const path = relative(sourceRoot, source);
+      if (!path) return true;
+      const topLevel = path.split(sep)[0];
+      return (
+        !ISOLATED_APP_EXCLUDES.has(topLevel) && !topLevel.startsWith(".env")
+      );
+    },
+  });
+  const dependencies = await realpath(join(sourceRoot, "node_modules"));
+  await symlink(dependencies, join(targetRoot, "node_modules"), "dir");
+}
+
 async function freePort(): Promise<number> {
   return new Promise<number>((resolvePort, reject) => {
     const server = createServer();
@@ -345,11 +382,13 @@ async function waitForHealth(server: ServerHandle): Promise<void> {
 }
 
 async function startServer({
+  appRoot,
   vault,
   data,
   timezone,
   logPath,
 }: {
+  appRoot: string;
   vault: string;
   data: string;
   timezone: string;
@@ -363,7 +402,7 @@ async function startServer({
     process.execPath,
     [EVE_BIN, "dev", "--no-ui", "--host", "127.0.0.1", "--port", String(port)],
     {
-      cwd: ROOT,
+      cwd: appRoot,
       env,
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
@@ -409,11 +448,12 @@ async function runCommand(
   args: string[],
   env: NodeJS.ProcessEnv,
   logPath: string,
+  cwd = ROOT,
 ): Promise<void> {
   const log = createWriteStream(logPath, { flags: "a" });
   await new Promise<void>((resolveRun, reject) => {
     const child = spawn(command, args, {
-      cwd: ROOT,
+      cwd,
       env,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -447,6 +487,12 @@ async function sendQuestion(
   });
   const session = client.session();
   let timer: NodeJS.Timeout | undefined;
+  let answer: {
+    status: string;
+    reply: string | null;
+    transport_status?: string;
+    error?: string;
+  };
   try {
     const result = await Promise.race([
       session.send(prompt).then((turn) => turn.result()),
@@ -458,9 +504,9 @@ async function sendQuestion(
         );
       }),
     ]);
-    return normalizeQuestionResult(result);
+    answer = normalizeQuestionResult(result);
   } catch (error) {
-    return {
+    answer = {
       status: "error",
       reply: null,
       error: error instanceof Error ? error.message : String(error),
@@ -468,6 +514,8 @@ async function sendQuestion(
   } finally {
     clearTimeout(timer);
   }
+  await retireMemoryEvalSession({ enabled: true, session });
+  return answer;
 }
 
 export function normalizeQuestionResult(result: {
@@ -1016,6 +1064,7 @@ async function processWeek(
   modeDir: string,
   scenario: Scenario,
   mode: Mode,
+  appRoot: string,
 ): Promise<ArtifactIssue[]> {
   const vault = join(modeDir, "vault");
   const data = join(modeDir, "data");
@@ -1025,6 +1074,7 @@ async function processWeek(
   let server: ServerHandle | null = null;
   try {
     const started = await startServer({
+      appRoot,
       vault,
       data,
       timezone: scenario.timezone,
@@ -1052,6 +1102,7 @@ async function processWeek(
           ],
           started.env,
           join(modeDir, `rollup-${date}.log`),
+          appRoot,
         );
       } catch (error) {
         const dailyIssues = await validateDailyArtifacts(vault, date, mode);
@@ -1085,6 +1136,7 @@ async function askQuestions(
   modeDir: string,
   scenario: Scenario,
   questions: Question[],
+  appRoot: string,
 ): Promise<Answer[]> {
   const grouped = new Map<string, Question[]>();
   for (const question of questions) {
@@ -1103,6 +1155,7 @@ async function askQuestions(
     let server: ServerHandle | null = null;
     try {
       const started = await startServer({
+        appRoot,
         vault,
         data,
         timezone: scenario.timezone,
@@ -1184,15 +1237,21 @@ async function runMode(
 ): Promise<ArtifactIssue[]> {
   const modeDir = await prepareMode(root, mode);
   if (options.prepareOnly) return [];
-  const artifactIssues = await processWeek(modeDir, scenario, mode);
-  if (options.skipQuestions) return artifactIssues;
-  const answers = await askQuestions(modeDir, scenario, questions);
-  await writeFile(
-    join(modeDir, "review.md"),
-    reviewMarkdown(questions, answers),
-    "utf8",
-  );
-  return artifactIssues;
+  const appRoot = await mkdtemp(join(tmpdir(), "iva-ceo-benchmark-app-"));
+  try {
+    await prepareIsolatedBenchmarkApp(ROOT, appRoot);
+    const artifactIssues = await processWeek(modeDir, scenario, mode, appRoot);
+    if (options.skipQuestions) return artifactIssues;
+    const answers = await askQuestions(modeDir, scenario, questions, appRoot);
+    await writeFile(
+      join(modeDir, "review.md"),
+      reviewMarkdown(questions, answers),
+      "utf8",
+    );
+    return artifactIssues;
+  } finally {
+    await rm(appRoot, { recursive: true, force: true });
+  }
 }
 
 export async function main(args = process.argv.slice(2)): Promise<void> {

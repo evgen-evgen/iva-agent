@@ -68,7 +68,7 @@ No hardcoded domains, types, or paths. The agent discovers structure from data, 
 1. Run `graph.py health <vault-dir>` → check score
 2. If health < 90 → investigate:
    a. broken_links > 0  → `graph.py fix <vault-dir> --apply`
-   b. orphans > 5       → connect orphans to hub files (see Workflow 4)
+   b. orphans > 5       → regenerate domain MOCs, then add genuine neighbor links (see Workflow 4)
    c. desc_coverage < 70% → add descriptions to files missing them
 3. Run `moc.py generate <vault-dir>` → regenerate indexes
 4. Run `engine.py decay <vault-dir>` → recalculate relevance + tiers
@@ -81,7 +81,7 @@ No hardcoded domains, types, or paths. The agent discovers structure from data, 
 | -------------------- | ---- | --------------------------------------- |
 | Health score         | ≥90  | <90: investigate broken links, orphans  |
 | Broken links         | 0    | >0: `graph.py fix --apply`              |
-| Orphan files         | <5   | ≥5: connect to hubs (Workflow 4)        |
+| Orphan files         | <5   | ≥5: regenerate MOCs, then inspect links |
 | Description coverage | ≥80% | <70%: add descriptions                  |
 | Stale cards (>90d)   | <20% | >30%: `engine.py creative` to resurface |
 
@@ -131,16 +131,15 @@ Only when the operation is **ADD**, continue:
            break
    ```
 3. **Frontmatter:** Write description (search snippet, not title repeat), tags (2-5, lowercase, kebab-case), status from type's enum
-4. **LINKING PROTOCOL (mandatory):**
-   a. Add `## Related` section with `[[hub]]` file of the domain
-   - Hub = `_index.md` or `MEMORY.md` of that domain
-     b. Find 2-3 sibling cards of same type+domain → add `[[links]]`
-   - `uv run scripts/autograph/graph.py backlinks <vault> <hub>` → find siblings
-   - Or: read vault-graph.json → filter nodes by type+domain
-     c. Run `uv run scripts/autograph/engine.py touch <new-file>`
+4. **LINKING PROTOCOL:**
+   a. Add only genuine existing neighbors to `## Related`; zero is valid when the vault
+   has no useful relation yet.
+   b. Run `uv run scripts/autograph/moc.py generate <vault> <schema>` so the generated
+   `MOC/MOC-<domain>.md` indexes the card. Do not invent `_index` links.
+   c. Run `uv run scripts/autograph/engine.py touch <new-file>`.
 5. **Verify checklist:**
-   - [ ] Hub linked?
-   - [ ] 2+ related cards found?
+   - [ ] Every Related target exists and is semantically relevant?
+   - [ ] Generated domain MOC links the card?
    - [ ] description ≠ title repeat?
    - [ ] tags: 2-5, lowercase, kebab-case?
    - [ ] status ∈ schema enum?
@@ -156,7 +155,7 @@ Templates: `references/card-templates.md`
 ### Navigation (Hub → Links → Target)
 
 1. **Determine domain** from the topic (work, personal, research, etc. — whatever your schema defines)
-2. **Start at hub:** `_index.md` or `MEMORY.md` of that domain
+2. **Start at hub:** `MOC/MOC-<domain>.md`, generated from the schema
 3. **Follow links** — max 2 hops from hub to target
 4. **Fallback:** `uv run scripts/autograph/graph.py backlinks <vault> <target>` for reverse links
 
@@ -164,7 +163,7 @@ Templates: `references/card-templates.md`
 
 ```bash
 uv run scripts/autograph/graph.py orphans <vault-dir>        # find orphans
-# For each orphan: connect to nearest hub or sibling card
+# Regenerate MOCs first; then connect genuine sibling cards where useful
 ```
 
 ### Link Strengthening
@@ -226,7 +225,7 @@ For Phases 1-3: run the prep command, read the output JSON, do the analysis your
 
 1. **CAPTURE:** `daily.py extract <daily-dir> <vault-dir> [date]` (candidates → `.graph/`) + `supersede.py <vault>` (conflict scan). Read schema `node_types`, list noteworthy items + the day's topics.
 2. **PROCESS:** per item, run the Workflow 3 Step 0 decision (ADD / UPDATE / SUPERSEDE / NOOP — `references/update-in-place.md`); resolve every `.graph/supersede-candidates.json` entry.
-3. **LINK:** apply the Workflow 3 linking protocol (hub + 2 siblings + touch) to each card.
+3. **LINK:** apply the Workflow 3 protocol (real neighbors + generated domain MOC + touch) to each card.
 4. **SUMMARIZE (schema-gated):** only if the schema defines a summary type, write a daily-summary card with topics + a MOC down to today's cards and the raw file. No hardcoded DAG.
 
 **Idempotency:** append `<!-- autograph-processed: YYYY-MM-DDTHH:MM cards=N -->` to the end of the daily file; on re-run, skip content above the last marker. Never edit existing lines.
@@ -338,7 +337,7 @@ uv run scripts/autograph/link_cleanup.py <vault-dir> --apply                    
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | **Skipping agent swarm in Phase 2**                  | **CRITICAL: always run Step 2B. Script alone cannot classify unstructured content. No exceptions.**                       |
 | **Using deprecated `links` subcommand**              | **`links` was removed (0.3% match rate). Only `swarm-links` is available — 81.6% match rate.**                            |
-| **Creating cards without linking**                   | **Always follow Workflow 3 — link to hub + 2 siblings immediately. Orphan cards are wasted knowledge.**                   |
+| **Creating cards without graph indexing**            | **Always follow Workflow 3 — generate domain MOCs, add only real neighbor links, and touch the card.**                    |
 | **Creating a near-duplicate instead of updating**    | **Workflow 3 Step 0 — `search.py`/grep first. Same subject → UPDATE or SUPERSEDE the existing card, never a second one.** |
 | **Two contradictory Compiled Truths on one subject** | **SUPERSEDE: rewrite the Compiled Truth, move the old one to append-only `## History`. Never leave both standing.**       |
 | **Touching archive cards to active directly**        | **Use graduated recall — touch promotes one tier at a time (archive→cold→warm→active).**                                  |

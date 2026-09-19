@@ -87,10 +87,7 @@ function validateSummaryFrontmatter(text: string, date: string): void {
     ["tags", /^tags:\s*\[.*\]\s*$/m],
     ["status", /^status:\s*active\s*$/m],
     ["topics", /^topics:\s*\[.*\]\s*$/m],
-    [
-      "source",
-      new RegExp(`^source:\\s*daily/${date}\\.md\\s*$`, "m"),
-    ],
+    ["source", new RegExp(`^source:\\s*daily/${date}\\.md\\s*$`, "m")],
   ];
   const missing = required
     .filter(([, pattern]) => !pattern.test(frontmatter))
@@ -153,7 +150,9 @@ export function appendDailyProcessingMarker({
   );
   if (existing.test(raw)) return false;
   if (new RegExp(`<!-- processed: ${date}T`).test(raw)) {
-    throw new Error(`raw daily file has an incomplete processing marker: ${path}`);
+    throw new Error(
+      `raw daily file has an incomplete processing marker: ${path}`,
+    );
   }
 
   const summaryPath = join(vault, "summaries", "daily", `${date}.md`);

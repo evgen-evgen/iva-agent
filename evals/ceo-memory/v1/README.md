@@ -39,9 +39,9 @@ The validator checks JSON structure, unique IDs, checkpoint names, source refere
 ## Run it yourself
 
 The runner uses the model provider already configured in `.env`, but creates a separate
-vault, data directory, local server, and bearer token. It removes Telegram credentials
-from the benchmark process and disables answer transcript writes. It never opens or edits
-the live vault.
+vault, data directory, temporary Eve app root/workflow store, local server, and bearer
+token. It removes Telegram credentials from the benchmark process and disables answer
+transcript writes. It never opens or edits the live vault or reuses its active workflows.
 
 ### Free run through OpenRouter
 
@@ -105,7 +105,9 @@ isolated process marked with `IVA_MEMORY_EVAL_MODE=1`.
 
 Each synthetic day also starts a fresh processing session. The vault persists between
 days, but the model conversation does not, so the benchmark measures durable memory
-rather than an increasingly long rollup chat context.
+rather than an increasingly long rollup chat context. Successful rollup and question
+sessions are terminally reset before the next sample, so a restarted local server cannot
+redeliver an earlier benchmark workflow.
 
 After each rollup, the runner checks that the raw day has a processing marker, the daily
 summary has the required frontmatter, autograph produced the graph and MOC, and the Delta

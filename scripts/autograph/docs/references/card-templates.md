@@ -86,23 +86,21 @@ Creative director at Globex.
 - 2026-06-01: role: Art Director (held 2026-01→2026-06)
 ```
 
-## Linking Protocol (ОБЯЗАТЕЛЬНО при создании карточки)
+## Linking Protocol
 
-После создания файла — СРАЗУ свяжи:
+После создания файла:
 
-1. **Hub link:** Добавь `## Related` с [[hub]] файлом домена
-   - Определи домен из path → schema `domain_inference`
-   - Hub = _index.md или MEMORY.md домена
-2. **Sibling links:** Найди 2-3 карточки того же type+domain
-   - `python3 scripts/autograph/graph.py backlinks <vault> <hub>` → найди siblings
-   - Или: прочитай vault-graph.json → filter nodes by type+domain
+1. **Related:** Добавь только существующие карточки с реальной смысловой связью.
+   Если таких пока нет, пустой `## Related` допустим.
+2. **Domain MOC:** Запусти `moc.py generate`; он создаст `MOC/MOC-<domain>.md`
+   и добавит ссылку на карточку. Не создавай ссылки на несуществующие `_index`.
 3. **Touch:** `python3 scripts/autograph/engine.py touch <new-file>`
-4. **Verify:** Карточка должна иметь ≥2 links в `## Related`
+4. **Verify:** Все ссылки в `## Related` существуют и действительно полезны.
 
 ### Checklist
 
-- [ ] Hub linked?
-- [ ] 2+ related cards found?
+- [ ] Все Related-ссылки существуют?
+- [ ] Доменный MOC ссылается на карточку?
 - [ ] description ≠ title repeat?
 - [ ] tags: 2-5, lowercase, kebab-case?
 - [ ] status ∈ schema enum?

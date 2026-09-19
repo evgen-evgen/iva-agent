@@ -44,6 +44,7 @@ import {
   sentNotBeforeIso,
 } from "../lib/rollup-stale-cursor.ts";
 import { sendTelegramHtml } from "../lib/telegram-send.ts";
+import { retireMemoryEvalSession } from "../lib/eval-session.ts";
 import {
   resolveDailyTargetDate,
   resolveRollupPromptDate,
@@ -147,6 +148,9 @@ function buildPrompt(p: Period, now: string, dailyTarget: string): string {
         `and due date MUST be materialized through write_commitment. Use its create/reschedule/complete/` +
         `cancel lifecycle and reuse the same commitment_id; do not leave commitment state only in another ` +
         `card or summary, and do not use generic write_card for commitment transitions. ` +
+        `A commitment identity is accountable owner + independently observable deliverable: supplier ` +
+        `delivery and employee verification are separate commitments, and a milestone, SLA, or unaccepted ` +
+        `request is not a commitment by itself. ` +
         `Never leave two contradictory Compiled Truths; History is append-only, never edited. ` +
         `Tag each fact's certainty with 'confidence:' — EXTRACTED (user stated it directly) or ` +
         `INFERRED (you deduced it). ` +
@@ -204,16 +208,14 @@ const client = new Client({
   ...(BEARER ? { auth: { bearer: () => Promise.resolve(BEARER) } } : {}),
 });
 
-// Session REUSE, not a fresh session per night. eve backs every client session with a
-// workflowEntry run in .eve/.workflow-data that nothing ever closes (the client API has
-// no delete), so a fresh session per rollup leaked one forever-"running" run per night
-// and eve re-enqueued the whole pile on every start. One persistent session per period
-// caps that at one run. Rotation stays RARE for that reason: every rotation abandons one
-// run in the store (nothing can close it), so per-night rotation would just re-create the
-// leak. Abandoned sessions are logged to data/rollup-abandoned.jsonl for the record;
+// Production reuses one session per period so normal nightly runs retain a bounded amount
+// of conversational continuity. The benchmark is different: every synthetic day is an
+// independent sample, so its successful one-shot session is terminally reset at the end.
+// Abandoned production sessions are logged to data/rollup-abandoned.jsonl for the record;
 // `iva reset` clears them together with the store. Parked cursor lives in data/.
 const DATA_DIR = resolveDataDir(process.cwd());
 const SESSION_FILE = join(DATA_DIR, `rollup-session-${period}.json`);
+const MEMORY_EVAL_MODE = process.env.IVA_MEMORY_EVAL_MODE === "1";
 // 14 days, not 90. The session carries the whole history of previous rollups, and the
 // daily one reuses it every single night: at 90 days the nightly turn opened with ~three
 // months of prior rollup transcript — tens of thousands of tokens of context the night's
@@ -228,6 +230,14 @@ const SESSION_TTL_MS = 14 * 24 * 3600 * 1000;
 // deletes it. It separates an installation that used to get the morning report from a fresh
 // one, which has nothing to miss and must hear nothing. Best-effort by design: ADR-0007.
 const RAN_BEFORE = rollupRanBefore(DATA_DIR, VAULT);
+
+async function retireBenchmarkSession(): Promise<void> {
+  await retireMemoryEvalSession({
+    enabled: MEMORY_EVAL_MODE,
+    session,
+    cursorPath: SESSION_FILE,
+  });
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -390,12 +400,7 @@ let session = saved ? client.session(saved.state) : client.session();
 const mainPrompt = attachRollupNonce(
   buildPrompt(
     period,
-    resolveRollupPromptDate(
-      period,
-      today,
-      completedDay,
-      process.env.IVA_MEMORY_EVAL_MODE === "1",
-    ),
+    resolveRollupPromptDate(period, today, completedDay, MEMORY_EVAL_MODE),
     completedDay,
   ),
   randomUUID(),
@@ -666,6 +671,7 @@ if (REPORTS_TO_TELEGRAM[period]) {
     console.log(
       `rollup ${period}: memory reports are off — the report stays in the log`,
     );
+    await retireBenchmarkSession();
     process.exit(0);
   }
   const r = delivery;
@@ -699,4 +705,5 @@ if (REPORTS_TO_TELEGRAM[period]) {
   console.log(`rollup ${period}: report sent to Telegram.`);
 }
 
+await retireBenchmarkSession();
 process.exit(0);

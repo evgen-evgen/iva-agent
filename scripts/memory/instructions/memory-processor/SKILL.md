@@ -61,6 +61,17 @@ Every explicit promise or obligation that has an owner, a deliverable, and a due
 MUST become a commitment card through `write_commitment`. It is not enough to mention it
 in a contact/project card or only in the daily summary.
 
+A commitment's identity is the pair **accountable owner + independently observable
+deliverable**. Keep adjacent steps separate when either differs. In particular, a
+supplier delivering credentials and an employee verifying that the credentials work are
+two commitments, even when they belong to one API-access dependency:
+
+- NordSupply → provide credentials by 10:00;
+- Ivan Petrov → verify working API access.
+
+Never copy one party's deadline onto another party. Complete only the card whose owner
+and deliverable match the confirmation.
+
 - `create` when the promise is made;
 - `reschedule` when its due date changes;
 - `complete` when delivery is explicitly confirmed;
@@ -71,8 +82,11 @@ Reuse the same stable, descriptive `commitment_id` for every transition (for exa
 `ivan-petrov-nordsupply-api-access`). The tool owns `status`, current truth, provenance,
 and append-only `## History`; never use generic `write_card` for a commitment lifecycle
 change. An Iva opinion or inference is never a commitment and must not be materialized as
-one. Requests without an accepted promise stay in the transcript unless another source
-explicitly establishes the obligation.
+one. A project milestone, SLA/commercial term, or unaccepted request is not itself a
+commitment. Requests without an accepted promise stay in the transcript unless another
+source explicitly establishes the obligation. Before describing delivery as on time or
+late, compare the card's `completed_at` with `due_at`; if either is not precise enough,
+state that timeliness is unknown.
 
 Always pick `type` and `status` from `schema.json` → `node_types`. Never invent a status.
 
@@ -84,7 +98,8 @@ Always pick `type` and `status` from `schema.json` → `node_types`. Never inven
    their lifecycle tool; create / update other cards by choosing exactly one
    `ADD | UPDATE | SUPERSEDE | NOOP` operation, then type + description-snippet + tags +
    status; dedup against existing cards.
-3. **LINK** (`phases/link.md`) — wire every new card to its domain hub + 2–3 neighbors.
+3. **LINK** (`phases/link.md`) — add only real semantic links to existing neighboring
+   cards. The deterministic MOC pass indexes every card by domain.
 4. **SUMMARIZE** (`phases/summarize.md`) — write the daily-summary card: the day's
    TOPICS plus a MOC linking up to the week, down to the created cards, and down to
    the raw daily transcript. Return the semantic report; the rollup finalizer owns
@@ -109,8 +124,9 @@ A failed mechanical command fails the rollup and leaves the day unmarked for a s
 
 - **Never modify the raw transcript.** The deterministic rollup finalizer appends the
   processing marker after your turn succeeds.
-- **No orphans.** Every card created here must link to a hub and ≥2 neighbors before
-  you finish (`phases/link.md`).
+- **No invented links.** Relate a card only to existing cards that have a genuine
+  semantic connection. The deterministic finalizer generates domain MOCs and makes every
+  schema card reachable even when no suitable neighbor exists yet (`phases/link.md`).
 - **description is a search snippet, not the title.** One line, what/why, ~150 chars.
 - **tags:** 2–5, lowercase, kebab-case.
 - **Idempotent.** If the daily file already carries a processing marker and a

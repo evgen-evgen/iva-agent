@@ -53,7 +53,8 @@ Resolve **every** entry in `.graph/supersede-candidates.json` while you are here
 ## Phase 3 — LINK
 
 Apply the Workflow 3 linking protocol to each created/updated card: a `## Related`
-section with the domain hub + 2–3 sibling cards, then `engine.py touch`. No orphans.
+section containing only genuine existing neighbors, then `moc.py generate` for domain
+indexing and `engine.py touch`. Zero neighbors is valid; do not invent links.
 
 ## Phase 4 — SUMMARIZE (schema-gated, optional)
 

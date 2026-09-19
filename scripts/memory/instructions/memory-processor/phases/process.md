@@ -18,6 +18,16 @@ type, extract every explicit promise/obligation with all three components:
 2. deliverable — the observable result;
 3. due date/time — when it is due.
 
+Use `(accountable owner, independently observable deliverable)` as the identity boundary.
+Two steps in one dependency chain remain separate commitments if they have different
+owners or can be completed independently. For example:
+
+- `NordSupply → provide API credentials by 10:00`;
+- `Ivan Petrov → verify working API access`.
+
+Do not merge these into one “API access” card, do not assign NordSupply's due time to
+Ivan, and close each card only on confirmation of that exact owner + deliverable.
+
 Search `cards/commitments/` first and call `write_commitment` with one lifecycle action:
 
 - `create` for a new explicit promise;
@@ -30,8 +40,13 @@ Use a stable descriptive `commitment_id` and reuse it on later days. Preserve th
 time in ISO form; include the local UTC offset when the source gives a time. Use
 `source_role=user` for facts stated by the user, `forwarded` for quoted/forwarded
 participants, and `external` for an external source. Never convert an Iva inference into
-a commitment. The lifecycle tool owns current status and `## History`; do not send these
-cards through generic `write_card`.
+a commitment. A project deadline, SLA, commercial condition, or request without explicit
+acceptance is not a commitment by itself. The lifecycle tool owns current status and
+`## History`; do not send these cards through generic `write_card`.
+
+When reporting whether a completed commitment was on time, compare `completed_at`
+directly with `due_at`. If either value lacks enough precision for that comparison, say
+that timeliness is unknown; never infer it from nearby events.
 
 After processing the day, reread `cards/commitments/` and confirm that every explicit
 promise in the transcript has exactly one card and the latest lifecycle state.
@@ -40,10 +55,14 @@ promise in the transcript has exactly one card and the latest lifecycle state.
 
 For each item:
 
-1. **Dedup first.** Search for an existing card before creating one:
+1. **Dedup first.** Search for an existing card before creating one, including Cyrillic,
+   Latin, shortened-name, and obvious transliteration variants:
    ```bash
    grep -ril "<entity name or key phrase>" cards/
    ```
+   Reuse the existing canonical path and title for the same real person or organization.
+   A different script or spelling alone never justifies a second card. When identity is
+   genuinely ambiguous, keep the fact in the summary/transcript rather than guessing.
    Then choose exactly one operation and pass it to `write_card`:
    - No match → **ADD**. Create the card; ADD refuses an existing identity.
    - Match, same fact already present → **NOOP**. Do not touch the file.

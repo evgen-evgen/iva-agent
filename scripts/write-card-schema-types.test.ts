@@ -93,7 +93,7 @@ test("write_card validates custom statuses from the vault schema", async () => {
   assert.match(result.error, /Недопустимый status/);
 });
 
-test("write_card refuses commitment lifecycle writes", async () => {
+test("write_card refuses commitment lifecycle writes", () => {
   assert.throws(() =>
     inputSchema.parse({
       operation: "ADD",
