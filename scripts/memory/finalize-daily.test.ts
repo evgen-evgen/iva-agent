@@ -12,6 +12,7 @@ import { basename, join } from "node:path";
 import { after, test } from "node:test";
 import {
   appendDailyProcessingMarker,
+  ensureDailySummaryFrontmatter,
   finalizeDailyMemory,
   prepareDailyMemory,
   type FinalizerCommandRunner,
@@ -101,6 +102,57 @@ test("finalizer repairs summary framing and owns all mechanical steps", () => {
   assert.match(raw, /<!-- processed: 2026-09-10T16:32 -->/);
   assert.match(raw, /cards: 1/);
   assert.match(raw, /summary: summaries\/daily\/2026-09-10\.md/);
+});
+
+test("finalizer closes frontmatter truncated by a stale redelivery", () => {
+  const date = "2026-09-10";
+  const vault = fixture(date);
+  const path = join(vault, "summaries", "daily", `${date}.md`);
+  writeFileSync(
+    path,
+    [
+      "---",
+      "type: daily-summary",
+      `date: ${date}`,
+      "description: Daily summary with a complete field set.",
+      "tags: [daily]",
+      "status: active",
+      "topics: [delta]",
+      `source: daily/${date}.md`,
+      "domain: personal",
+      "",
+      `# ${date}`,
+      "",
+      "## Topics",
+      "",
+      "- Delta",
+      "",
+    ].join("\n"),
+  );
+
+  assert.equal(ensureDailySummaryFrontmatter(vault, date), path);
+  const summary = readFileSync(path, "utf8");
+  assert.match(summary, /domain: personal\n---\n\n# 2026-09-10/);
+  assert.equal((summary.match(/^---$/gm) ?? []).length, 2);
+});
+
+test("frontmatter repair remains fail-closed when required fields are missing", () => {
+  const date = "2026-09-10";
+  const vault = fixture(date);
+  const path = join(vault, "summaries", "daily", `${date}.md`);
+  writeFileSync(
+    path,
+    `---\ntype: daily-summary\ndate: ${date}\n\n# ${date}\n`,
+  );
+
+  assert.throws(
+    () => ensureDailySummaryFrontmatter(vault, date),
+    /frontmatter is missing required fields: description, tags, status, topics, source/,
+  );
+  assert.equal(
+    readFileSync(path, "utf8"),
+    `---\ntype: daily-summary\ndate: ${date}\n\n# ${date}\n`,
+  );
 });
 
 test("a failed mechanical step leaves the day unmarked for a safe retry", () => {

@@ -99,6 +99,26 @@ function validateSummaryFrontmatter(text: string, date: string): void {
   }
 }
 
+function repairUnclosedSummaryFrontmatter(text: string): string {
+  if (!text.startsWith("---\n")) return text;
+
+  const lines = text.split("\n");
+  const closing = lines.findIndex((line, index) => index > 0 && line === "---");
+  const firstHeading = lines.findIndex(
+    (line, index) => index > 0 && /^#\s+\S/u.test(line),
+  );
+
+  // A real frontmatter delimiter must precede the Markdown body. Transport
+  // redelivery can replay a stale write after a valid one and leave the opening
+  // delimiter plus all required fields, but omit the closing `---`. Repair only
+  // that narrow shape; validation below still rejects missing or corrupt fields.
+  if (firstHeading < 0 || (closing > 0 && closing < firstHeading)) return text;
+
+  const frontmatter = lines.slice(0, firstHeading);
+  while (frontmatter.at(-1) === "") frontmatter.pop();
+  return [...frontmatter, "---", "", ...lines.slice(firstHeading)].join("\n");
+}
+
 export function ensureDailySummaryFrontmatter(
   vault: string,
   date: string,
@@ -111,6 +131,13 @@ export function ensureDailySummaryFrontmatter(
   if (!text.startsWith("---\n")) {
     text = summaryFrontmatter(date) + text;
     writeFileAtomicSync(path, text);
+  } else {
+    const repaired = repairUnclosedSummaryFrontmatter(text);
+    if (repaired !== text) {
+      validateSummaryFrontmatter(repaired, date);
+      writeFileAtomicSync(path, repaired);
+      text = repaired;
+    }
   }
   validateSummaryFrontmatter(text, date);
   return path;

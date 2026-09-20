@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
-import { nowMarkdown } from "./now.ts";
+import { nowMarkdown } from "./instructions/now.ts";
 
 const dirs: string[] = [];
 
