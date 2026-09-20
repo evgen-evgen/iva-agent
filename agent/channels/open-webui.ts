@@ -8,12 +8,15 @@ import {
   authorizedOpenWebUiRequest,
   openAiCompletion,
   openAiCompletionStream,
+  openWebUiAgentMessage,
   openWebUiContinuation,
   openWebUiIdentity,
   parseOpenAiChatRequest,
 } from "../lib/open-webui.js";
+import { openWebUiAttachments } from "../lib/open-webui-media.js";
 import { sanitizeInbound } from "../lib/security-gate.js";
 import { appendDaily } from "../lib/vault-daily.js";
+import { transcribe } from "../transcribe.js";
 
 type StreamEvent = {
   readonly type?: unknown;
@@ -122,9 +125,6 @@ async function completedMessage(
 }
 
 export default defineChannel({
-  // Open WebUI sends one request at a time for a chat. Queueing also prevents a quick
-  // double-submit from steering away the response owned by the first HTTP request.
-  turnPolicy: "queue",
   routes: [
     GET("/v1/models", async (request) => {
       const denied = requireAdapterAuth(request);
@@ -133,6 +133,26 @@ export default defineChannel({
         object: "list",
         data: [{ id: "iva", object: "model", created: 0, owned_by: "iva" }],
       });
+    }),
+    POST("/v1/audio/transcriptions", async (request) => {
+      const denied = requireAdapterAuth(request);
+      if (denied) return denied;
+      try {
+        const form = await request.formData();
+        const file = form.get("file");
+        if (!(file instanceof Blob) || file.size === 0) {
+          return openAiError("a non-empty audio file is required", 400);
+        }
+        if (file.size > 20 * 1024 * 1024) {
+          return openAiError("audio file is larger than 20 MB", 413);
+        }
+        const text = (await transcribe(await file.arrayBuffer())).trim();
+        if (!text) return openAiError("audio transcription was empty", 422);
+        return Response.json({ text }, { headers: jsonHeaders });
+      } catch (error) {
+        console.error("[open-webui] speech transcription failed:", error);
+        return openAiError("audio transcription failed", 502);
+      }
     }),
     POST(
       "/v1/chat/completions",
@@ -160,11 +180,17 @@ export default defineChannel({
           : 0;
         const prepared = inbound(parsed.prompt);
         try {
-          const session = await send(prepared.message, {
-            auth: webAuth(identity),
-            continuationToken,
-            ...(prepared.context ? { context: prepared.context } : {}),
-          });
+          const attachmentContext = await openWebUiAttachments(parsed.attachments);
+          const session = await send(
+            openWebUiAgentMessage(prepared.message, [
+              ...(prepared.context ?? []),
+              ...attachmentContext,
+            ]),
+            {
+              auth: webAuth(identity),
+              continuationToken,
+            },
+          );
           const message = redactNotice(
             await completedMessage(session, startIndex),
           );

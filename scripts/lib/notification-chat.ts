@@ -1,6 +1,9 @@
+import { telegramEnabled } from "#lib/feature-flags.ts";
+
 export function notificationChat(
   env: Record<string, string | undefined> = process.env,
 ): string {
+  if (!telegramEnabled(env)) return "";
   const digest = String(env.TELEGRAM_DIGEST_CHAT_ID ?? "").trim();
   if (digest) return digest;
   return (

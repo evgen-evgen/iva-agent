@@ -4,6 +4,8 @@ Open WebUI is an optional browser surface for Iva. It does not call the configur
 provider directly: its OpenAI-compatible request goes to Iva, and Iva starts or resumes the
 same Eve agent runtime that owns the vault, memory, tools, skills, and model configuration.
 
+For the alternative LibreChat frontend, see [LibreChat](./librechat.md).
+
 ## Architecture
 
 ```text
@@ -69,16 +71,19 @@ account, chats, and UI settings; removing that volume deletes them.
 
 ## Current boundary
 
-The first slice intentionally supports linear text chats:
+The bridge supports linear chats with text and attachments:
 
 - `X-OpenWebUI-User-Id` plus `X-OpenWebUI-Chat-Id` select a durable Eve conversation.
 - Only the latest user message is sent because Eve already owns the conversation history.
 - User text is written to the daily transcript and passes Iva's inbound gate.
+- Images, documents, and audio are saved under `vault/attachments/`. Images go to the
+  chat model when it supports vision and otherwise through Iva's configured vision model;
+  uploaded audio uses the same Deepgram transcription path as Telegram.
 - The complete assistant message passes the outbound secret gate before it is returned.
 - OpenAI SSE is syntactically supported, but the answer is released as one buffered chunk.
   Buffering is intentional: sending raw token deltas would let a secret escape before the
   complete outbound scanner can recognize and redact it.
 
-Not yet supported: image/file input, Open WebUI chat branches or editing an earlier message,
-interactive HITL cards, and propagating the browser Stop action to Eve cancellation. Keep the
-Telegram surface available for those flows until they are implemented and acceptance-tested.
+Not yet supported: Open WebUI chat branches or editing an earlier message, interactive HITL
+cards, and propagating the browser Stop action to Eve cancellation. Keep the Telegram surface
+available for those flows until they are implemented and acceptance-tested.
