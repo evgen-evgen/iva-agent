@@ -25,6 +25,7 @@ Any of the following is a critical error, even if the wording is fluent:
 
 - reporting 18 September as the current Delta launch date after 10 September;
 - reporting the API-access commitment as open after 11 September;
+- transferring NordSupply's credentials deadline to Ivan's separate working-access commitment without an explicit reschedule;
 - reporting Marina's proposal or Oleg's cash-flow as overdue after completion;
 - omitting Marina's still-open Acme contract commitment when asked for open commitments;
 - merging Ivan Petrov with Ivan Sokolov;
@@ -45,7 +46,8 @@ Answer quality alone can hide a broken memory layout. After each run, inspect th
 - duplicate cards for the same subject;
 - contradictory current truths outside `## History`;
 - stale open commitments after completion;
-- missing history for changed launch/API/cash-flow deadlines;
+- missing history for the changed launch and cash-flow deadlines;
+- merging the separate NordSupply-credentials and Ivan-working-access commitments;
 - links between Delta, the right people, Acme, and NordSupply;
 - cards created from office-color noise;
 - EXTRACTED facts sourced only from `[iva]` entries;

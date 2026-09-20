@@ -27,6 +27,9 @@ owners or can be completed independently. For example:
 
 Do not merge these into one “API access” card, do not assign NordSupply's due time to
 Ivan, and close each card only on confirmation of that exact owner + deliverable.
+An upstream delay may explain why another commitment became late, but it does not
+reschedule that commitment. Call `reschedule` only when a source explicitly changes and
+accepts the deadline for that same owner + deliverable.
 
 Search `cards/commitments/` first and call `write_commitment` with one lifecycle action:
 
@@ -55,6 +58,11 @@ promise in the transcript has exactly one card and the latest lifecycle state.
 
 For each item:
 
+0. **Choose the authority.** Commitment lifecycle is written only through its commitment
+   card; current project launch/owner/blocker facts belong to the project card; stable
+   identity and role belong to the contact card. Other cards may link to the authority
+   and explain impact, but must not carry a second mutable copy.
+
 1. **Dedup first.** Search for an existing card before creating one, including Cyrillic,
    Latin, shortened-name, and obvious transliteration variants:
    ```bash
@@ -63,6 +71,10 @@ For each item:
    Reuse the existing canonical path and title for the same real person or organization.
    A different script or spelling alone never justifies a second card. When identity is
    genuinely ambiguous, keep the fact in the summary/transcript rather than guessing.
+   For decisions, search by project, subject, and decision date: one decision event gets
+   one canonical card even if a replay describes it with different wording. If `ADD`
+   reports that the card already exists, reread it and use `NOOP`, `UPDATE`, or
+   `SUPERSEDE`; never invent another title to bypass the refusal.
    Then choose exactly one operation and pass it to `write_card`:
    - No match → **ADD**. Create the card; ADD refuses an existing identity.
    - Match, same fact already present → **NOOP**. Do not touch the file.

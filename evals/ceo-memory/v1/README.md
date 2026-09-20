@@ -18,7 +18,8 @@ The benchmark is deliberately source-first. It fixes the raw transcripts, expect
 The scenario covers:
 
 - a launch date superseded from 18 to 25 September;
-- a supplier deadline moved from Wednesday to Friday;
+- separate dependent commitments: Ivan's working-access deadline stays Wednesday while
+  NordSupply promises credentials by Friday;
 - commitments that are completed, delayed, and still open;
 - a decision that must not auto-revert after its blocker disappears;
 - assistant inference that must not be promoted to user-stated fact;
@@ -159,6 +160,10 @@ fail-closed lifecycle owns creation, rescheduling, completion/cancellation, prov
 current truth, and append-only history. Generic `write_card` remains schema-driven for
 the other types. Old vaults without the overlay retain stock behavior; the new commitment
 tool refuses to write when `node_types.commitment` is absent.
+
+Dependent promises never inherit each other's deadlines. In this fixture NordSupply's
+Friday credentials promise does not reschedule Ivan's earlier promise to provide working
+access; only an explicit accepted deadline change can transition that commitment.
 
 ## What v1 does not score
 

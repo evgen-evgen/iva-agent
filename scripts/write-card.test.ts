@@ -1766,6 +1766,38 @@ test("реплей SUPERSEDE через полночь остаётся noop, а
   assert.equal(replayed.content, replaced.content);
 });
 
+test("реплей UPDATE через полночь остаётся noop, а не переставляет updated", () => {
+  const base = {
+    title: "Cross midnight update replay",
+    fields: {
+      type: "note",
+      description: "проверка повторной доставки update",
+      tags: ["note"],
+      status: "active",
+    },
+    initialFields: { created: "2026-08-07", source: "daily/2026-08-07.md" },
+    body: "Initial truth",
+    date: "2026-08-07",
+  };
+  const created = mergeCard({ ...base, operation: "ADD" });
+  const update = {
+    ...base,
+    existing: created.content,
+    operation: "UPDATE" as const,
+    body: "Compatible fact",
+  };
+  const updated = mergeCard(update);
+  assert.equal(updated.action, "merged");
+
+  const replayed = mergeCard({
+    ...update,
+    existing: updated.content,
+    date: "2026-08-08",
+  });
+  assert.equal(replayed.action, "noop");
+  assert.equal(replayed.content, updated.content);
+});
+
 test("лок сериализует запись: второй захват ждёт и падает по таймауту", () => {
   const file = join(VAULT, "cards", "notes", "lock-probe.md");
   const release = acquireLock(file);

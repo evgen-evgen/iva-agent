@@ -46,6 +46,13 @@ same person, same project, same decision being refined. Append a dated line unde
 `## Log` section and sharpen the `description`. Creating a near-duplicate is the most
 common mistake — grep first.
 
+Mutable current truth has one authoritative card. Commitment lifecycle belongs only to
+the commitment card; project launch/owner/blocker facts belong to the project card;
+stable identity and role belong to the contact card. Other cards and summaries may link
+to that authority but must not copy a mutable status or deadline. A decision card is one
+event, not one phrasing: search by project + subject + decision date before `ADD` and
+reuse the same canonical card when a tool call is replayed.
+
 ## ADD / UPDATE / SUPERSEDE / NOOP (temporal conflict)
 
 For every fact, pick one operation:

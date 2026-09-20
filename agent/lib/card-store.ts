@@ -961,16 +961,17 @@ export function mergeCard(input: MergeInput): MergeResult {
       parsed.fields ? parsed.lines : [],
     )}\n---\n${newBody.replace(/\s*$/, "")}\n`;
   const content = render(date);
-  // Реплей, перешагнувший полночь, отличается от лежащей карточки только сегодняшним
-  // `updated:`. Записать файл ради одной этой строки - выдать за изменение то, что
-  // изменением не является, поэтому дату исключаем из сверки.
+  // Любой точный реплей, включая UPDATE, не должен переставлять `updated:` или писать
+  // тот же Log повторно. Сравнение со старым stamp сохраняет идемпотентность и после
+  // полуночи; реальные изменения frontmatter/body/links всё равно меняют render.
   const previousStamp = parsed.fields?.updated;
+  if (
+    content === existing ||
+    (typeof previousStamp === "string" && render(previousStamp) === existing)
+  ) {
+    return { content: existing, action: "noop" };
+  }
   if (suppressedHistoryEntry) {
-    if (
-      content === existing ||
-      (typeof previousStamp === "string" && render(previousStamp) === existing)
-    )
-      return { content: existing, action: "noop" };
     // Карточка меняется, а строка архива подавлена как дубль - значит это не реплей, а
     // устаревший historyEntry поверх нового тела: либо модель повторила вчерашний факт,
     // либо это доставленный не по порядку прошлый SUPERSEDE, который откатил бы truth на

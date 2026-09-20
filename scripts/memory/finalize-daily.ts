@@ -25,6 +25,7 @@ interface FinalizeDailyMemoryOptions extends MemoryCommandOptions {
   date: string;
   timezone: string;
   now?: Date;
+  graphAsOf?: string;
 }
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -221,18 +222,26 @@ export function finalizeDailyMemory({
   date,
   timezone,
   now = new Date(),
+  graphAsOf,
   run = defaultRunner,
 }: FinalizeDailyMemoryOptions): void {
   const summaryPath = ensureDailySummaryFrontmatter(vault, date);
   const schemaPath = join(vault, "schema.json");
+  // Historical benchmark runs must judge future week/month links from the simulated
+  // processing day, not from the host clock. Production keeps graph.py's real local date.
+  const graphClock = graphAsOf ? ["--as-of", graphAsOf] : [];
 
   runAutograph("cleanup.py", [vault, "--apply"], run);
   runAutograph("enforce.py", [vault, schemaPath, "--apply"], run);
-  runAutograph("graph.py", ["fix", vault, schemaPath, "--apply"], run);
+  runAutograph(
+    "graph.py",
+    ["fix", vault, schemaPath, "--apply", ...graphClock],
+    run,
+  );
   runAutograph("engine.py", ["touch", summaryPath], run);
   runAutograph("moc.py", ["generate", vault, schemaPath], run);
   runAutograph("engine.py", ["decay", vault], run);
-  runAutograph("graph.py", ["health", vault, schemaPath], run);
+  runAutograph("graph.py", ["health", vault, schemaPath, ...graphClock], run);
 
   const graph = join(vault, ".graph", "vault-graph.json");
   if (!existsSync(graph)) {

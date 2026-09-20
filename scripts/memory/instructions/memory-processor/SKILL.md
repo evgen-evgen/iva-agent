@@ -90,6 +90,25 @@ state that timeliness is unknown.
 
 Always pick `type` and `status` from `schema.json` → `node_types`. Never invent a status.
 
+### One owner for current truth
+
+Keep each operational fact authoritative in exactly one place:
+
+- a commitment card owns its accountable owner, deliverable, due date, lifecycle status,
+  completion time, and lifecycle history;
+- a project card owns current project scalars such as launch date, project owner, and
+  active blocker;
+- a contact card owns stable identity, organization, and role—not copied project dates or
+  commitment lifecycle state;
+- a decision card records one decision event and its rationale. Search by project,
+  subject, and decision date before `ADD`; a wording variant or replay must reuse the
+  canonical card, not create a second decision.
+
+Summaries and neighboring cards may link to the authority and describe its impact, but
+must not maintain a competing copy of mutable current truth. If a commitment changes,
+transition only its commitment card; if a project scalar changes, supersede it only in
+the project card and preserve the previous value in that card's `## History`.
+
 ## Flow (4 phases)
 
 1. **CAPTURE** (`phases/capture.md`) — read the transcript, segment it, and decide
@@ -131,6 +150,8 @@ A failed mechanical command fails the rollup and leaves the day unmarked for a s
 - **tags:** 2–5, lowercase, kebab-case.
 - **Idempotent.** If the daily file already carries a processing marker and a
   `summaries/daily/YYYY-MM-DD.md` exists, only reconcile new entries; do not duplicate cards.
+  A replayed `ADD` refusal means the canonical card already exists: reread it and choose
+  `NOOP` or the real lifecycle transition. Never evade the refusal with a new title.
 - **One structure per card.** Exactly one `## Log` and one `## Related`; never emit
   dated `## Обновление` / `## Update` headings. Pass relations only through the
   `write_card.related` argument, never inside `body`.

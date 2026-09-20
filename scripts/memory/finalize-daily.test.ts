@@ -64,9 +64,11 @@ test("finalizer repairs summary framing and owns all mechanical steps", () => {
   const date = "2026-09-10";
   const vault = fixture(date);
   const commands: string[] = [];
+  const graphInvocations: string[][] = [];
   const run: FinalizerCommandRunner = (_command, args) => {
     const script = basename(args[1]);
     commands.push(script + (script === "graph.py" ? `:${args[2]}` : ""));
+    if (script === "graph.py") graphInvocations.push(args.slice(2));
     if (script === "graph.py" && args[2] === "health") {
       mkdirSync(join(vault, ".graph"), { recursive: true });
       writeFileSync(join(vault, ".graph", "vault-graph.json"), "{}\n");
@@ -79,6 +81,7 @@ test("finalizer repairs summary framing and owns all mechanical steps", () => {
     date,
     timezone: "UTC",
     now: new Date("2026-09-14T16:32:00Z"),
+    graphAsOf: date,
     run,
   });
 
@@ -90,6 +93,10 @@ test("finalizer repairs summary framing and owns all mechanical steps", () => {
     "moc.py",
     "engine.py",
     "graph.py:health",
+  ]);
+  assert.deepEqual(graphInvocations, [
+    ["fix", vault, join(vault, "schema.json"), "--apply", "--as-of", date],
+    ["health", vault, join(vault, "schema.json"), "--as-of", date],
   ]);
   const summary = readFileSync(
     join(vault, "summaries", "daily", `${date}.md`),

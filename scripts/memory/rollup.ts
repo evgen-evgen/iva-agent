@@ -151,6 +151,12 @@ function buildPrompt(p: Period, now: string, dailyTarget: string): string {
         `A commitment identity is accountable owner + independently observable deliverable: supplier ` +
         `delivery and employee verification are separate commitments, and a milestone, SLA, or unaccepted ` +
         `request is not a commitment by itself. ` +
+        `Never copy a dependency's deadline onto another commitment without an explicit accepted reschedule. ` +
+        `The commitment card is the only authority for its owner, due date, status, and completion; other ` +
+        `cards may link it and describe impact, but must not duplicate lifecycle state. The project card owns ` +
+        `current project facts such as launch date, project owner, and active blocker. Contact cards own stable ` +
+        `identity and role, not project or commitment state. A decision card records one decision event and ` +
+        `rationale: search by project, subject, and decision date before ADD, then reuse one canonical card. ` +
         `Never leave two contradictory Compiled Truths; History is append-only, never edited. ` +
         `Tag each fact's certainty with 'confidence:' — EXTRACTED (user stated it directly) or ` +
         `INFERRED (you deduced it). ` +
@@ -610,6 +616,7 @@ if (period === "daily") {
       vault: VAULT,
       date: completedDay,
       timezone: TZ,
+      graphAsOf: MEMORY_EVAL_MODE ? completedDay : undefined,
     });
   } catch (error) {
     console.error(
