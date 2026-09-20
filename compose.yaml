@@ -21,13 +21,86 @@ services:
       ENABLE_AUTOCOMPLETE_GENERATION: "False"
       ENABLE_SEARCH_QUERY_GENERATION: "False"
       ENABLE_RETRIEVAL_QUERY_GENERATION: "False"
+      ENABLE_MEMORIES: "False"
       AIOHTTP_CLIENT_TIMEOUT: "3600"
       SCARF_NO_ANALYTICS: "True"
       DO_NOT_TRACK: "True"
       ANONYMIZED_TELEMETRY: "False"
+      ENABLE_AUTOMATIONS: "False"
+      USER_PERMISSIONS_FEATURES_AUTOMATIONS: "False"
+      USER_PERMISSIONS_FEATURES_MEMORIES: "False"
+      ENABLE_SUBAGENTS: "False"
+      USER_PERMISSIONS_CHAT_MULTIPLE_MODELS: "False"
+      USER_PERMISSIONS_WORKSPACE_MODELS_ACCESS: "False"
+      USER_PERMISSIONS_WORKSPACE_KNOWLEDGE_ACCESS: "False"
+      USER_PERMISSIONS_WORKSPACE_TOOLS_ACCESS: "False"
+      USER_PERMISSIONS_FEATURES_DIRECT_TOOL_SERVERS: "False"
+      ENABLE_TOOL_PERMISSIONS: "False"
+      OFFLINE_MODE: "True"
+      HF_HUB_OFFLINE: 1
+      USER_PERMISSIONS_FEATURES_WEB_SEARCH: "False"
+      USER_PERMISSIONS_FEATURES_CODE_INTERPRETER: "False"
+      ENABLE_PLUGINS: "False"
     volumes:
       - open-webui-data:/app/backend/data
     restart: unless-stopped
 
+  librechat:
+    profiles: ["librechat"]
+    image: registry.librechat.ai/danny-avila/librechat-dev:latest
+    container_name: iva-librechat
+    network_mode: host
+    depends_on:
+      librechat-mongodb:
+        condition: service_healthy
+    environment:
+      HOST: 127.0.0.1
+      PORT: ${LIBRECHAT_PORT:-3080}
+      DOMAIN_CLIENT: http://127.0.0.1:${LIBRECHAT_PORT:-3080}
+      DOMAIN_SERVER: http://127.0.0.1:${LIBRECHAT_PORT:-3080}
+      MONGO_URI: mongodb://127.0.0.1:${LIBRECHAT_MONGO_PORT:-27018}/LibreChat
+      CONFIG_PATH: /app/librechat.yaml
+      LIBRECHAT_TEMP_CREDENTIALS_PATH: /app/data/.env.temp
+      OPEN_WEBUI_API_KEY: ${OPEN_WEBUI_API_KEY:?Set OPEN_WEBUI_API_KEY in .env}
+      IVA_PORT: ${IVA_PORT:-8723}
+      ALLOW_EMAIL_LOGIN: "true"
+      ALLOW_REGISTRATION: "true"
+      ALLOW_SOCIAL_LOGIN: "false"
+      NO_INDEX: "true"
+    volumes:
+      - ./librechat.yaml:/app/librechat.yaml:ro
+      - ./data/librechat-images:/app/client/public/images
+      - librechat-data:/app/data
+      - librechat-uploads:/app/uploads
+      - librechat-logs:/app/logs
+    restart: unless-stopped
+
+  librechat-mongodb:
+    profiles: ["librechat"]
+    image: mongo:8.0.20
+    container_name: iva-librechat-mongodb
+    network_mode: host
+    command:
+      - mongod
+      - --noauth
+      - --bind_ip
+      - 127.0.0.1
+      - --port
+      - ${LIBRECHAT_MONGO_PORT:-27018}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "mongosh --quiet --port ${LIBRECHAT_MONGO_PORT:-27018} --eval 'quit(db.runCommand({ ping: 1 }).ok ? 0 : 2)'"
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - librechat-mongodb:/data/db
+    restart: unless-stopped
+
 volumes:
   open-webui-data:
+  librechat-data:
+  librechat-uploads:
+  librechat-logs:
+  librechat-mongodb:

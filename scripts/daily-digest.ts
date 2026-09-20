@@ -6,12 +6,18 @@ import { Client } from "eve/client";
 import { tr } from "#lib/i18n.ts";
 import { writtenInLanguage } from "./lib/notice-policy.ts";
 import { sendTelegramHtml } from "./lib/telegram-send.ts";
+import { telegramEnabled } from "#lib/feature-flags.ts";
 
 const PORT = process.env.IVA_PORT ?? "8723";
 const HOST = process.env.ASSISTANT_HOST ?? `http://127.0.0.1:${PORT}`;
 const BOT = process.env.TELEGRAM_BOT_TOKEN;
 const CHAT = process.env.TELEGRAM_DIGEST_CHAT_ID;
 const BEARER = process.env.ASSISTANT_BEARER; // needed if the eve channel in prod requires auth
+
+if (!telegramEnabled()) {
+  console.log("digest: Telegram disabled; nothing to send");
+  process.exit(0);
+}
 
 if (!BOT || !CHAT) {
   console.error("TELEGRAM_BOT_TOKEN and TELEGRAM_DIGEST_CHAT_ID are required");

@@ -31,3 +31,14 @@ void test("notification chat is empty without a digest chat or trusted user", ()
     "",
   );
 });
+
+void test("notification chat is empty when Telegram is disabled", () => {
+  assert.equal(
+    notificationChat({
+      TELEGRAM_ENABLED: "false",
+      TELEGRAM_DIGEST_CHAT_ID: "99",
+      TELEGRAM_ALLOWED_USER_IDS: "1,2",
+    }),
+    "",
+  );
+});

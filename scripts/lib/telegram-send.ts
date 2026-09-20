@@ -22,6 +22,7 @@ import {
 } from "../../agent/lib/outbox.ts";
 import { traceOutbox, type TraceScope } from "../../agent/lib/trace.ts";
 import { classifyDeliverStatus } from "./deliver-policy.ts";
+import { telegramEnabled } from "#lib/feature-flags.ts";
 
 type TelegramRequest = Record<string, unknown>;
 type FetchImpl = typeof fetch;
@@ -202,6 +203,8 @@ export async function sendTelegramHtml(
     trace,
   }: TelegramSendOptions = {},
 ): Promise<{ ok: boolean; fellBack: boolean; error: string }> {
+  if (!telegramEnabled())
+    return { ok: false, fellBack: false, error: "Telegram is disabled" };
   const transport = messageTransport(
     chat,
     poster(bot, retryTransient, fetchImpl, sleep),
@@ -259,6 +262,8 @@ export async function sendTelegramRich(
     trace,
   }: TelegramRichOptions = {},
 ): Promise<{ ok: boolean; fellBack: boolean; error: string }> {
+  if (!telegramEnabled())
+    return { ok: false, fellBack: false, error: "Telegram is disabled" };
   const sendPost = poster(bot, retryTransient, fetchImpl, sleep);
   const extra: TelegramRequest = {
     ...(silent ? { disable_notification: true } : {}),
