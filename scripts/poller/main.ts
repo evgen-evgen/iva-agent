@@ -97,7 +97,7 @@ const configuredCollectQuietMs =
 export async function main({
   acquireProcessLockImpl = acquireTelegramProcessLock,
 }: {
-  /** Test seam; the production entrypoint always uses the uid-global lease. */
+  /** Test seam; the production entrypoint always uses the bot-scoped lease. */
   acquireProcessLockImpl?: typeof acquireTelegramProcessLock;
 } = {}) {
   if (!telegramEnabled()) {

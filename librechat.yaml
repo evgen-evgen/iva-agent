@@ -87,5 +87,7 @@ speech:
     speechToText:
       engineSTT: external
       autoTranscribeAudio: false
+      # Keep recognized speech in the composer so the user can review and edit
+      # it before sending. LibreChat uses -1 to disable automatic sending.
       autoSendText: -1
     textToSpeech: false
