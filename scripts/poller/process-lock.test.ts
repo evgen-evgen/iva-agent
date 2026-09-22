@@ -25,6 +25,7 @@ import {
   TELEGRAM_PROCESS_LOCK_FILE,
   TELEGRAM_PROCESS_OWNER_FILE,
   TELEGRAM_PROCESS_RESOURCE,
+  telegramProcessScope,
   telegramProcessOwnerIsLive,
 } from "./process-lock.ts";
 import { parseBacklogDropMarker } from "./startup-state.ts";
@@ -213,9 +214,18 @@ void test("property: arbitrary owner bytes either fail or satisfy the full ident
   );
 });
 
-void test("the production holder resource is uid-global and contains no bot, path, or secret", () => {
+void test("the production holder resource is bot-scoped and contains no token, path, or secret", () => {
   const uid = typeof process.getuid === "function" ? process.getuid() : 0;
-  assert.equal(TELEGRAM_PROCESS_RESOURCE, `telegram:${uid}`);
+  const expected = telegramProcessScope(process.env.TELEGRAM_BOT_TOKEN, uid);
+  assert.equal(TELEGRAM_PROCESS_RESOURCE, expected.resource);
+  assert.equal(
+    telegramProcessScope("71001:first-secret", uid).resource,
+    telegramProcessScope("71001:second-secret", uid).resource,
+  );
+  assert.notEqual(
+    telegramProcessScope("71001:first-secret", uid).resource,
+    telegramProcessScope("71002:first-secret", uid).resource,
+  );
   assert.equal(
     TELEGRAM_PROCESS_LOCK_FILE,
     join(TELEGRAM_PROCESS_GUARD_BASE, "telegram-poll.lock"),
@@ -250,12 +260,15 @@ void test("the production holder resource is uid-global and contains no bot, pat
   ]);
 });
 
-void test("property: arbitrary holder markers fail or satisfy the global schema", () => {
+void test("property: arbitrary holder markers fail or satisfy the scoped schema", () => {
   fc.assert(
     fc.property(fc.string(), (raw) => {
       try {
         const holder = parseTelegramGuardHolderMarker(raw);
-        assert.match(holder.resource, /^(?:telegram:[0-9]+|test:[a-z0-9-]+)$/u);
+        assert.match(
+          holder.resource,
+          /^(?:telegram:(?:[0-9]+|uid-[0-9]+)|test:[a-z0-9-]+)$/u,
+        );
         assert.ok(Number.isSafeInteger(holder.pid) && holder.pid > 0);
         assert.match(holder.nonce, /^[0-9a-f]{32}$/u);
         assert.deepEqual(Object.keys(holder).sort(), [
@@ -273,7 +286,7 @@ void test("property: arbitrary holder markers fail or satisfy the global schema"
   );
 });
 
-void test("different bots and DATA_DIR values share one uid-global lease", async (t) => {
+void test("the same injected identity and different DATA_DIR values share one lease", async (t) => {
   const root = mkdtempSync(join(tmpdir(), "iva-process-global-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const guard = makeGuard(root, "global");
@@ -353,14 +366,10 @@ void test("different bots and DATA_DIR values share one uid-global lease", async
   );
 });
 
-void test("the production default conflicts before I/O regardless of botId or DATA_DIR", async () => {
+void test("the production default conflicts before I/O for the configured bot", async () => {
   const processStart = readProcessStartIdentity(process.pid);
   assert.ok(processStart);
   const observedResources: string[] = [];
-  const configuredInstances = [
-    { botId: "71041", dataDir: "/state/one" },
-    { botId: "71042", dataDir: "/state/two" },
-  ];
   await assert.rejects(
     acquireTelegramProcessLock({
       processStartImpl: () => processStart,
@@ -381,10 +390,6 @@ void test("the production default conflicts before I/O regardless of botId or DA
       },
     }),
     /held by active PID 999000/u,
-  );
-  assert.deepEqual(
-    configuredInstances.map(() => observedResources[0]),
-    [TELEGRAM_PROCESS_RESOURCE, TELEGRAM_PROCESS_RESOURCE],
   );
   assert.deepEqual(observedResources, [TELEGRAM_PROCESS_RESOURCE]);
 });

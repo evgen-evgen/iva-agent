@@ -24,10 +24,23 @@ const HOLDER_SOURCE =
   "process.stdin.on('error',()=>process.exit(0));";
 
 const processUid = typeof process.getuid === "function" ? process.getuid() : 0;
-export const TELEGRAM_PROCESS_RESOURCE = `telegram:${processUid}`;
+export function telegramProcessScope(
+  token: string | undefined,
+  uid: number,
+): { identity: string; resource: string } {
+  const botId = /^([1-9][0-9]*):/u.exec(token ?? "")?.[1];
+  const identity = botId ?? `uid-${uid}`;
+  return { identity, resource: `telegram:${identity}` };
+}
+
+const processScope = telegramProcessScope(
+  process.env.TELEGRAM_BOT_TOKEN,
+  processUid,
+);
+export const TELEGRAM_PROCESS_RESOURCE = processScope.resource;
 export const TELEGRAM_PROCESS_GUARD_BASE = join(
   "/tmp",
-  `iva-telegram-poll-${processUid}`,
+  `iva-telegram-poll-${processUid}-${processScope.identity}`,
 );
 export const TELEGRAM_PROCESS_LOCK_FILE = join(
   TELEGRAM_PROCESS_GUARD_BASE,
@@ -64,7 +77,7 @@ export type TelegramGuardHolder = {
 };
 
 type TestGuard = {
-  /** Explicit isolation seam for tests; production always uses the uid resource. */
+  /** Explicit isolation seam for tests; production uses the Telegram bot identity. */
   identity: string;
   directory: string;
 };
@@ -114,7 +127,7 @@ export function parseTelegramProcessOwner(raw: string): TelegramProcessOwner {
 function validGuardResource(value: unknown): value is string {
   return (
     typeof value === "string" &&
-    (/^telegram:[0-9]+$/u.test(value) ||
+    (/^telegram:(?:[0-9]+|uid-[0-9]+)$/u.test(value) ||
       /^test:[a-z0-9][a-z0-9-]{0,63}$/u.test(value))
   );
 }

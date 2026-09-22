@@ -14,7 +14,10 @@ function arrayBuffer(bytes: Uint8Array): ArrayBuffer {
 
 export async function openWebUiAttachments(
   attachments: readonly OpenAiAttachment[],
-  transcribeAudio: (audio: ArrayBuffer) => Promise<string> = transcribe,
+  transcribeAudio: (
+    audio: ArrayBuffer,
+    mediaType?: string,
+  ) => Promise<string> = transcribe,
   describe: (image: ArrayBuffer, mediaType?: string) => Promise<string> =
     describeImage,
   modelSeesImages: () => Promise<boolean> = chatModelSeesImages,
@@ -40,7 +43,9 @@ export async function openWebUiAttachments(
     if (attachment.kind === "audio") {
       let transcript = "";
       try {
-        transcript = (await transcribeAudio(bytes)).trim();
+        transcript = (
+          await transcribeAudio(bytes, attachment.mediaType)
+        ).trim();
       } catch (error) {
         console.error("[open-webui] audio transcription failed:", error);
       }

@@ -1,5 +1,6 @@
 services:
   open-webui:
+    profiles: ["open-webui"]
     image: ghcr.io/open-webui/open-webui:v0.11.3
     container_name: iva-open-webui
     network_mode: host

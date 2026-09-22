@@ -15,7 +15,7 @@ import {
 } from "../lib/open-webui.js";
 import { openWebUiAttachments } from "../lib/open-webui-media.js";
 import { sanitizeInbound } from "../lib/security-gate.js";
-import { appendDaily } from "../lib/vault-daily.js";
+import { appendDaily, localStamp, saveBlob } from "../lib/vault-daily.js";
 import { transcribe } from "../transcribe.js";
 
 type StreamEvent = {
@@ -146,8 +146,24 @@ export default defineChannel({
         if (file.size > 20 * 1024 * 1024) {
           return openAiError("audio file is larger than 20 MB", 413);
         }
-        const text = (await transcribe(await file.arrayBuffer())).trim();
-        if (!text) return openAiError("audio transcription was empty", 422);
+        const audio = await file.arrayBuffer();
+        const mediaType = file.type || undefined;
+        const text = (await transcribe(audio, mediaType)).trim();
+        if (!text) {
+          const saved = saveBlob(
+            audio,
+            file instanceof File ? file.name : undefined,
+            "voice",
+            mediaType,
+            localStamp(),
+          );
+          console.error("[open-webui] empty speech transcript:", {
+            bytes: audio.byteLength,
+            mediaType: mediaType ?? "unknown",
+            saved,
+          });
+          return openAiError("audio transcription was empty", 422);
+        }
         return Response.json({ text }, { headers: jsonHeaders });
       } catch (error) {
         console.error("[open-webui] speech transcription failed:", error);
