@@ -22,6 +22,7 @@ import {
   validateCeoCommitments,
   resolveCodexAuthDataDir,
   validateDailyArtifacts,
+  withWorkflowLocalTimeoutDefaults,
 } from "./benchmark.ts";
 
 const dirs: string[] = [];
@@ -117,6 +118,33 @@ test("benchmark records the OpenRouter free model without exposing its key", () 
   assert.equal(
     JSON.stringify(metadata).includes("secret-not-for-run-json"),
     false,
+  );
+});
+
+test("benchmark local workflow transport survives long agent turns", () => {
+  assert.deepEqual(withWorkflowLocalTimeoutDefaults({}), {
+    WORKFLOW_LOCAL_HEADERS_TIMEOUT_MS: "3600000",
+    WORKFLOW_LOCAL_BODY_TIMEOUT_MS: "3600000",
+  });
+  assert.deepEqual(
+    withWorkflowLocalTimeoutDefaults({
+      WORKFLOW_LOCAL_HEADERS_TIMEOUT_MS: "30000",
+      WORKFLOW_LOCAL_BODY_TIMEOUT_MS: "invalid",
+    }),
+    {
+      WORKFLOW_LOCAL_HEADERS_TIMEOUT_MS: "3600000",
+      WORKFLOW_LOCAL_BODY_TIMEOUT_MS: "3600000",
+    },
+  );
+  assert.deepEqual(
+    withWorkflowLocalTimeoutDefaults({
+      WORKFLOW_LOCAL_HEADERS_TIMEOUT_MS: "7200000",
+      WORKFLOW_LOCAL_BODY_TIMEOUT_MS: "7200000",
+    }),
+    {
+      WORKFLOW_LOCAL_HEADERS_TIMEOUT_MS: "7200000",
+      WORKFLOW_LOCAL_BODY_TIMEOUT_MS: "7200000",
+    },
   );
 });
 

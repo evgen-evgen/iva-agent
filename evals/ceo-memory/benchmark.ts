@@ -105,6 +105,7 @@ const FIXTURE = join(ROOT, "evals", "ceo-memory", "v1");
 const EVE_BIN = join(ROOT, "node_modules", "eve", "bin", "eve.js");
 const TURN_TIMEOUT_MS = 180_000;
 const SERVER_TIMEOUT_MS = 90_000;
+const WORKFLOW_LOCAL_TIMEOUT_MS = 3_600_000;
 const CODEX_AUTH_DATA_DIR_ENV = "IVA_CODEX_AUTH_DATA_DIR";
 const DAILY_ROLLUP_SESSION_FILE = "rollup-session-daily.json";
 const ISOLATED_APP_EXCLUDES = new Set([
@@ -232,6 +233,31 @@ export function benchmarkModelMetadata(
   };
 }
 
+export function withWorkflowLocalTimeoutDefaults(
+  env: NodeJS.ProcessEnv,
+): NodeJS.ProcessEnv {
+  const safeTimeout = (value: string | undefined): string => {
+    const configured = Number(value);
+    return String(
+      Number.isSafeInteger(configured) && configured > WORKFLOW_LOCAL_TIMEOUT_MS
+        ? configured
+        : WORKFLOW_LOCAL_TIMEOUT_MS,
+    );
+  };
+  return {
+    ...env,
+    // A local queue delivery remains open for the whole tool/model-heavy turn.
+    // Eve's 30-second defaults otherwise abort the self-call and redeliver the
+    // same workflow message while its original handler may still be running.
+    WORKFLOW_LOCAL_HEADERS_TIMEOUT_MS: safeTimeout(
+      env.WORKFLOW_LOCAL_HEADERS_TIMEOUT_MS,
+    ),
+    WORKFLOW_LOCAL_BODY_TIMEOUT_MS: safeTimeout(
+      env.WORKFLOW_LOCAL_BODY_TIMEOUT_MS,
+    ),
+  };
+}
+
 async function createNewDirectory(path: string): Promise<void> {
   if (existsSync(path)) {
     const kind = statSync(path).isDirectory() ? "directory" : "file";
@@ -313,7 +339,7 @@ function isolatedEnv({
   bearer: string;
   timezone: string;
 }): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = {
+  const env: NodeJS.ProcessEnv = withWorkflowLocalTimeoutDefaults({
     ...process.env,
     ASSISTANT_VAULT_DIR: vault,
     ASSISTANT_DATA_DIR: data,
@@ -325,7 +351,7 @@ function isolatedEnv({
     IVA_HEALTH_PROBE: "1",
     IVA_DISABLE_TRANSCRIPT: "1",
     [MEMORY_EVAL_MODE_ENV]: "1",
-  };
+  });
 
   for (const key of [
     "TELEGRAM_BOT_TOKEN",
