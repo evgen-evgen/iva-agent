@@ -51,7 +51,12 @@ endpoints:
       models:
         default: [iva]
         fetch: true
-      titleConvo: false
+      # Name a chat from its first question. The marker is handled locally by
+      # Iva's bridge and is never sent into the agent session or written to the vault.
+      titleConvo: true
+      titlePrompt: |-
+        __IVA_LIBRECHAT_TITLE__
+        {convo}
       summarize: false
       modelDisplayLabel: Iva
 

@@ -115,13 +115,13 @@ void test("init-vault preserves an existing vault on repeated runs", async (t) =
   assert.equal(second.status, 0, second.stderr);
   assert.match(
     second.stdout,
-    /vault already has data, skipping template copy/u,
+    /vault already has data; restored 0 missing template entries/u,
   );
   assert.equal(readFileSync(join(vault, "personal.md"), "utf8"), "keep this\n");
   assert.equal(existsSync(join(vault, "CORE.en.md")), false);
 });
 
-void test("init-vault leaves a non-empty pre-existing vault untouched", async (t) => {
+void test("init-vault repairs only missing structure in a non-empty vault", async (t) => {
   const root = await sandbox(t);
   makeTemplate(root);
   const vault = join(root, "live-vault");
@@ -136,13 +136,15 @@ void test("init-vault leaves a non-empty pre-existing vault untouched", async (t
   assert.equal(result.status, 0, result.stderr);
   assert.match(
     result.stdout,
-    /vault already has data, skipping template copy/u,
+    /vault already has data; restored 3 missing template entries/u,
   );
   assert.equal(
     readFileSync(join(vault, "personal.md"), "utf8"),
     "private memory\n",
   );
-  assert.equal(existsSync(join(vault, "CORE.md")), false);
+  assert.equal(readFileSync(join(vault, "CORE.md"), "utf8"), "Russian core\n");
+  assert.equal(readFileSync(join(vault, "MOC.md"), "utf8"), "MOC\n");
+  assert.equal(existsSync(join(vault, "cards", ".gitkeep")), true);
   assert.equal(existsSync(join(vault, ".git")), true);
   assert.equal(
     execFileSync("git", ["-C", vault, "rev-parse", "--is-inside-work-tree"], {

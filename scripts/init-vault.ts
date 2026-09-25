@@ -5,7 +5,14 @@
 // personal transcripts/blobs/cards must NOT land in the code repository. This script
 // copies the structure from vault-template/ (if the live vault is empty) and git-inits it.
 // Idempotent: an existing vault with data is not overwritten.
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import {
+  copyFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+} from "node:fs";
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 
@@ -23,6 +30,28 @@ function isEmpty(dir: string): boolean {
   if (!existsSync(dir)) return true;
   // Treat a vault as empty if it has no content (only .git is allowed).
   return readdirSync(dir).every((name) => name === ".git");
+}
+
+// A live vault may receive its first daily message before setup is run. In that case it
+// is already non-empty, but still lacks CORE/MOC/schema and the rollup directories.
+// Merge only missing template entries so setup can repair that state without ever
+// replacing personal transcripts, cards, attachments or hand-edited memory files.
+function copyMissingTemplate(source: string, destination: string): number {
+  let copied = 0;
+  mkdirSync(destination, { recursive: true });
+  for (const entry of readdirSync(source, { withFileTypes: true })) {
+    if (entry.name === "CORE.en.md") continue;
+    const from = resolve(source, entry.name);
+    const to = resolve(destination, entry.name);
+    if (entry.isDirectory()) {
+      copied += copyMissingTemplate(from, to);
+      continue;
+    }
+    if (!entry.isFile() || existsSync(to)) continue;
+    copyFileSync(from, to, 0);
+    copied += 1;
+  }
+  return copied;
 }
 
 mkdirSync(VAULT, { recursive: true });
@@ -45,8 +74,9 @@ if (isEmpty(VAULT)) {
     `init-vault: vault created from template → ${VAULT} (CORE: ${lang})`,
   );
 } else {
+  const copied = copyMissingTemplate(TEMPLATE, VAULT);
   console.log(
-    `init-vault: vault already has data, skipping template copy → ${VAULT}`,
+    `init-vault: vault already has data; restored ${copied} missing template entries → ${VAULT}`,
   );
 }
 
