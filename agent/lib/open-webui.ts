@@ -15,6 +15,7 @@ export type OpenAiAttachment = {
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 const MAX_ATTACHMENT_TOTAL_BYTES = 25 * 1024 * 1024;
 const MAX_ATTACHMENTS = 10;
+export const LIBRECHAT_TITLE_MARKER = "__IVA_LIBRECHAT_TITLE__";
 
 export type OpenAiMessage = {
   readonly role?: unknown;
@@ -99,9 +100,11 @@ function messageContent(content: unknown): {
       continue;
     }
     if (part.type === "input_audio") {
-      if (!isRecord(part.input_audio)) throw new Error("input_audio is invalid");
+      if (!isRecord(part.input_audio))
+        throw new Error("input_audio is invalid");
       const format = part.input_audio.format;
-      if (typeof format !== "string") throw new Error("audio format is required");
+      if (typeof format !== "string")
+        throw new Error("audio format is required");
       attachments.push({
         bytes: decodeBase64(String(part.input_audio.data ?? "")),
         filename: `voice.${format.toLowerCase()}`,
@@ -111,11 +114,14 @@ function messageContent(content: unknown): {
       continue;
     }
     if (part.type === "file" || part.type === "input_file") {
-      const file = part.type === "file" && isRecord(part.file) ? part.file : part;
+      const file =
+        part.type === "file" && isRecord(part.file) ? part.file : part;
       const decoded = dataUrl(file.file_data);
       attachments.push({
         ...decoded,
-        ...(typeof file.filename === "string" ? { filename: file.filename } : {}),
+        ...(typeof file.filename === "string"
+          ? { filename: file.filename }
+          : {}),
         kind: decoded.mediaType.startsWith("audio/")
           ? "audio"
           : decoded.mediaType.startsWith("image/")
@@ -125,9 +131,14 @@ function messageContent(content: unknown): {
     }
   }
   if (attachments.length > MAX_ATTACHMENTS) {
-    throw new Error(`too many attachments: ${attachments.length} > ${MAX_ATTACHMENTS}`);
+    throw new Error(
+      `too many attachments: ${attachments.length} > ${MAX_ATTACHMENTS}`,
+    );
   }
-  const total = attachments.reduce((sum, attachment) => sum + attachment.bytes.byteLength, 0);
+  const total = attachments.reduce(
+    (sum, attachment) => sum + attachment.bytes.byteLength,
+    0,
+  );
   if (total > MAX_ATTACHMENT_TOTAL_BYTES) {
     throw new Error("attachments are larger than 25 MB in total");
   }
@@ -161,6 +172,29 @@ export function parseOpenAiChatRequest(value: unknown): {
     }
   }
   throw new Error("a non-empty user message is required");
+}
+
+/**
+ * LibreChat normally asks the selected model to name a new conversation.
+ * The marker lets the HTTP channel answer that service request locally, so it
+ * never becomes a user turn in Iva's session or vault.
+ */
+export function libreChatTitle(prompt: string): string | null {
+  if (!prompt.startsWith(LIBRECHAT_TITLE_MARKER)) return null;
+
+  const conversation = prompt.slice(LIBRECHAT_TITLE_MARKER.length).trim();
+  const userMatch = /(?:^|\n)User:\s*([\s\S]*?)(?=\nAI:|$)/u.exec(conversation);
+  const question = (userMatch?.[1] ?? conversation)
+    .replace(/https?:\/\/\S+/giu, " ")
+    .replace(/[`*_#[\](){}<>]/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+  const words = question.match(/[\p{L}\p{N}]+(?:[-'][\p{L}\p{N}]+)*/gu) ?? [];
+  if (words.length === 0) return "Новый чат";
+
+  let title = words.slice(0, 6).join(" ");
+  if (title.length > 60) title = `${title.slice(0, 57).trimEnd()}…`;
+  return title[0].toLocaleUpperCase("ru-RU") + title.slice(1);
 }
 
 /**
@@ -229,20 +263,81 @@ export function openAiCompletion(message: string, model = "iva") {
   };
 }
 
-export function openAiCompletionStream(message: string, model = "iva"): string {
-  const completion = openAiCompletion(message, model);
-  const chunk = {
-    id: completion.id,
-    object: "chat.completion.chunk",
-    created: completion.created,
+export type OpenAiStreamState = {
+  readonly created: number;
+  readonly id: string;
+  readonly model: string;
+};
+
+export function openAiStreamState(model = "iva"): OpenAiStreamState {
+  return {
+    id: `chatcmpl-${randomUUID()}`,
+    created: Math.floor(Date.now() / 1000),
     model,
+  };
+}
+
+export function openAiStreamChunk(
+  state: OpenAiStreamState,
+  message: string,
+  options: {
+    readonly finishReason?: "stop" | null;
+    readonly role?: boolean;
+  } = {},
+): string {
+  const delta: { content?: string; role?: "assistant" } = {};
+  if (options.role) delta.role = "assistant";
+  if (message) delta.content = message;
+  return `data: ${JSON.stringify({
+    id: state.id,
+    object: "chat.completion.chunk",
+    created: state.created,
+    model: state.model,
     choices: [
-      { index: 0, delta: { role: "assistant", content: message }, finish_reason: null },
+      {
+        index: 0,
+        delta,
+        finish_reason: options.finishReason ?? null,
+      },
     ],
-  };
-  const done = {
-    ...chunk,
-    choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
-  };
-  return `data: ${JSON.stringify(chunk)}\n\ndata: ${JSON.stringify(done)}\n\ndata: [DONE]\n\n`;
+  })}\n\n`;
+}
+
+export function openAiStreamDone(): string {
+  return "data: [DONE]\n\n";
+}
+
+/**
+ * Eve may durably coalesce adjacent model deltas into one event. Split a large
+ * coalesced event for browser rendering while preserving the exact text.
+ * Small provider deltas pass through unchanged and keep their natural cadence.
+ */
+export function openAiStreamPieces(text: string, limit = 32): string[] {
+  if (!text || text.length <= limit) return text ? [text] : [];
+  const characters = Array.from(text);
+  const pieces: string[] = [];
+  for (let start = 0; start < characters.length;) {
+    let end = Math.min(start + limit, characters.length);
+    if (end < characters.length) {
+      const minimum = start + Math.floor(limit / 2);
+      for (let cursor = end; cursor > minimum; cursor--) {
+        if (/\s/u.test(characters[cursor - 1] ?? "")) {
+          end = cursor;
+          break;
+        }
+      }
+    }
+    pieces.push(characters.slice(start, end).join(""));
+    start = end;
+  }
+  return pieces;
+}
+
+export function openAiCompletionStream(message: string, model = "iva"): string {
+  const state = openAiStreamState(model);
+  return (
+    openAiStreamChunk(state, message, { role: true }) +
+    openAiStreamChunk(state, "", { finishReason: "stop" }) +
+    openAiStreamDone()
+  );
 }

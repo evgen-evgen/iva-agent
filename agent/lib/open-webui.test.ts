@@ -2,12 +2,30 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   authorizedOpenWebUiRequest,
+  libreChatTitle,
   openAiCompletionStream,
+  openAiStreamChunk,
+  openAiStreamDone,
+  openAiStreamPieces,
   openWebUiAgentMessage,
   openWebUiContinuation,
   openWebUiIdentity,
   parseOpenAiChatRequest,
 } from "./open-webui.ts";
+
+test("creates LibreChat titles locally without treating ordinary prompts as titles", () => {
+  assert.equal(
+    libreChatTitle(
+      "__IVA_LIBRECHAT_TITLE__\nUser: как связать Telegram и LibreChat с общей памятью?\nAI: Хорошо.",
+    ),
+    "Как связать Telegram и LibreChat с",
+  );
+  assert.equal(libreChatTitle("обычное сообщение"), null);
+  assert.equal(
+    libreChatTitle("__IVA_LIBRECHAT_TITLE__\nUser: ???\nAI:"),
+    "Новый чат",
+  );
+});
 
 test("puts attachment context into the actual custom-channel message", () => {
   assert.equal(openWebUiAgentMessage("что это?", []), "что это?");
@@ -33,7 +51,10 @@ test("extracts only the latest user text from an OpenAI chat request", () => {
           role: "user",
           content: [
             { type: "text", text: "new" },
-            { type: "image_url", image_url: { url: "data:image/png;base64,xw==" } },
+            {
+              type: "image_url",
+              image_url: { url: "data:image/png;base64,xw==" },
+            },
           ],
         },
       ],
@@ -108,7 +129,10 @@ test("rejects remote and oversized attachment payloads instead of dropping them"
           {
             role: "user",
             content: [
-              { type: "image_url", image_url: { url: "https://example.com/a.png" } },
+              {
+                type: "image_url",
+                image_url: { url: "https://example.com/a.png" },
+              },
             ],
           },
         ],
@@ -146,4 +170,30 @@ test("emits a complete OpenAI-compatible SSE response", () => {
   assert.match(stream, /chat\.completion\.chunk/u);
   assert.match(stream, /"content":"hello"/u);
   assert.ok(stream.endsWith("data: [DONE]\n\n"));
+});
+
+test("emits incremental chunks with one completion id", () => {
+  const state = { id: "chatcmpl-test", created: 1, model: "iva" };
+  const stream =
+    openAiStreamChunk(state, "", { role: true }) +
+    openAiStreamChunk(state, "При") +
+    openAiStreamChunk(state, "вет") +
+    openAiStreamChunk(state, "", { finishReason: "stop" }) +
+    openAiStreamDone();
+
+  assert.equal(stream.match(/chatcmpl-test/gu)?.length, 4);
+  assert.match(stream, /"content":"При"/u);
+  assert.match(stream, /"content":"вет"/u);
+  assert.match(stream, /"finish_reason":"stop"/u);
+  assert.ok(stream.endsWith("data: [DONE]\n\n"));
+});
+
+test("splits coalesced stream events without changing their text", () => {
+  const text =
+    "Первый длинный фрагмент ответа 🙂 и его продолжение без потерь.";
+  const pieces = openAiStreamPieces(text, 16);
+  assert.ok(pieces.length > 1);
+  assert.equal(pieces.join(""), text);
+  assert.deepEqual(openAiStreamPieces("коротко", 16), ["коротко"]);
+  assert.deepEqual(openAiStreamPieces("", 16), []);
 });

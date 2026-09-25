@@ -6,8 +6,12 @@ import {
 import { redactNotice } from "../lib/outbox.js";
 import {
   authorizedOpenWebUiRequest,
+  libreChatTitle,
   openAiCompletion,
-  openAiCompletionStream,
+  openAiStreamChunk,
+  openAiStreamDone,
+  openAiStreamPieces,
+  openAiStreamState,
   openWebUiAgentMessage,
   openWebUiContinuation,
   openWebUiIdentity,
@@ -124,6 +128,110 @@ async function completedMessage(
   }
 }
 
+function liveCompletionStream(
+  session: Session,
+  startIndex: number,
+): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  const state = openAiStreamState();
+  let reader: ReadableStreamDefaultReader<StreamEvent> | undefined;
+  let closed = false;
+
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const write = (value: string) =>
+        controller.enqueue(encoder.encode(value));
+      const writeText = async (value: string) => {
+        const pieces = openAiStreamPieces(redactNotice(value));
+        for (const [index, piece] of pieces.entries()) {
+          if (closed) return;
+          write(openAiStreamChunk(state, piece));
+          if (pieces.length > 1 && index < pieces.length - 1) {
+            await new Promise((resolve) => setTimeout(resolve, 24));
+          }
+        }
+      };
+      const finish = () => {
+        if (closed) return;
+        closed = true;
+        write(openAiStreamChunk(state, "", { finishReason: "stop" }));
+        write(openAiStreamDone());
+        controller.close();
+      };
+      const fail = () => {
+        if (closed) return;
+        closed = true;
+        write(
+          `data: ${JSON.stringify({
+            error: {
+              message: "Iva could not complete this request",
+              type: "server_error",
+            },
+          })}\n\n`,
+        );
+        write(openAiStreamDone());
+        controller.close();
+      };
+
+      void (async () => {
+        const stream = await session.getEventStream({ startIndex });
+        reader = stream.getReader() as ReadableStreamDefaultReader<StreamEvent>;
+        const streamedSteps = new Set<number>();
+        write(openAiStreamChunk(state, "", { role: true }));
+
+        for (;;) {
+          const { done, value: event } = await reader.read();
+          if (done) {
+            fail();
+            return;
+          }
+          const data = isRecord(event.data) ? event.data : {};
+          if (
+            event.type === "message.appended" &&
+            typeof data.messageDelta === "string"
+          ) {
+            if (typeof data.stepIndex === "number")
+              streamedSteps.add(data.stepIndex);
+            await writeText(data.messageDelta);
+            continue;
+          }
+          if (
+            event.type === "message.completed" &&
+            data.finishReason !== "tool-calls" &&
+            typeof data.message === "string" &&
+            (typeof data.stepIndex !== "number" ||
+              !streamedSteps.has(data.stepIndex))
+          ) {
+            await writeText(data.message);
+            continue;
+          }
+          if (event.type === "turn.failed" || event.type === "session.failed") {
+            fail();
+            return;
+          }
+          if (
+            event.type === "session.waiting" ||
+            event.type === "session.completed"
+          ) {
+            finish();
+            return;
+          }
+        }
+      })().catch((error: unknown) => {
+        console.error("[open-webui] completion stream failed:", error);
+        fail();
+      });
+    },
+    async cancel() {
+      closed = true;
+      await reader?.cancel().catch(() => {});
+      await session.cancel().catch(() => {});
+    },
+  });
+
+  return body;
+}
+
 export default defineChannel({
   routes: [
     GET("/v1/models", async (request) => {
@@ -189,6 +297,11 @@ export default defineChannel({
         }
         if (parsed.model !== "iva") return openAiError("model not found", 404);
 
+        const title = libreChatTitle(parsed.prompt);
+        if (title !== null) {
+          return Response.json(openAiCompletion(title));
+        }
+
         const continuationToken = openWebUiContinuation(identity);
         const active = await resolveActiveSession({ continuationToken });
         const startIndex = active
@@ -196,7 +309,9 @@ export default defineChannel({
           : 0;
         const prepared = inbound(parsed.prompt);
         try {
-          const attachmentContext = await openWebUiAttachments(parsed.attachments);
+          const attachmentContext = await openWebUiAttachments(
+            parsed.attachments,
+          );
           const session = await send(
             openWebUiAgentMessage(prepared.message, [
               ...(prepared.context ?? []),
@@ -207,17 +322,18 @@ export default defineChannel({
               continuationToken,
             },
           );
-          const message = redactNotice(
-            await completedMessage(session, startIndex),
-          );
           if (parsed.stream) {
-            return new Response(openAiCompletionStream(message), {
+            return new Response(liveCompletionStream(session, startIndex), {
               headers: {
                 "content-type": "text/event-stream; charset=utf-8",
-                "cache-control": "no-cache",
+                "cache-control": "no-cache, no-transform",
+                "x-accel-buffering": "no",
               },
             });
           }
+          const message = redactNotice(
+            await completedMessage(session, startIndex),
+          );
           return Response.json(openAiCompletion(message));
         } catch (error) {
           console.error("[open-webui] completion failed:", error);
