@@ -97,7 +97,7 @@ cat data/rollup-status.json                               # last run per eve sch
 iva logs                  # agent; `iva logs poll` for the bridge
 ```
 
-The update check fetches the configured Git upstream without calling the model. It stays silent when the installed stable version is current, when the same version was already offered, or when Telegram is not configured. A newer `MAJOR.MINOR.PATCH` release produces one message in `TELEGRAM_DIGEST_CHAT_ID` (falling back to the first trusted user) with **Update** and **Later** buttons. Errors are journal-only and retry on the next timer run.
+The update check fetches the configured Git upstream without calling the model. It stays silent when the installed stable version is current, when the same version was already offered, or when Telegram is not configured. A newer `MAJOR.MINOR.PATCH` release produces one message in the explicitly configured `TELEGRAM_NOTIFICATION_CHAT_ID` with **Update** and **Later** buttons. Errors are journal-only and retry on the next timer run.
 
 Full CLI reference: [cli](./cli.md). What the rollups actually write: [memory](./memory.md).
 

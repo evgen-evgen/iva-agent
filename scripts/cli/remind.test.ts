@@ -29,7 +29,7 @@ function remindCommand(
   sendResult: SendResult = { ok: true, fellBack: false, error: "" },
   env: NodeJS.ProcessEnv = {
     TELEGRAM_BOT_TOKEN: "bot-token",
-    TELEGRAM_DIGEST_CHAT_ID: "555",
+    TELEGRAM_NOTIFICATION_CHAT_ID: "555",
   },
 ) {
   const sent: SendCall[] = [];
@@ -67,6 +67,8 @@ function remindCommand(
         },
       });
     },
+    recordNotification: () => Promise.resolve({ id: "notification-1" }),
+    setTelegramDelivery: () => Promise.resolve(),
     timeoutMs: 1,
   };
   const cmdRemind = createRemindCommand(
@@ -102,7 +104,7 @@ void test("a failed agent turn sends the raw Reminder once", async () => {
   assert.deepEqual(remind.sent, [
     ["bot-token", "555", "⏰ Позвонить врачу", { retryTransient: true }],
   ]);
-  assert.deepEqual(remind.messages, ["Reminder sent to Telegram"]);
+  assert.deepEqual(remind.messages, ["Reminder saved and sent to Telegram"]);
 });
 
 void test("a plain fallback reports formatting feedback to the same turn", async () => {
@@ -132,7 +134,7 @@ void test("a lost feedback turn does not fail a delivered Reminder", async () =>
   await remind.cmdRemind(["Проверить", "задачу"]);
 
   assert.equal(remind.sent.length, 1);
-  assert.deepEqual(remind.messages, ["Reminder sent to Telegram"]);
+  assert.deepEqual(remind.messages, ["Reminder saved and sent to Telegram"]);
 });
 
 void test("a refused Reminder send reports the Telegram error and exits one", async () => {
@@ -169,7 +171,7 @@ void test("a refused Reminder send reports the Telegram error and exits one", as
 void test("a missing token or chat fails before the agent turn", async () => {
   for (const { env, expected } of [
     {
-      env: { TELEGRAM_DIGEST_CHAT_ID: "555" },
+      env: { TELEGRAM_NOTIFICATION_CHAT_ID: "555" },
       expected: "TELEGRAM_BOT_TOKEN is missing — run: iva config",
     },
     {
@@ -177,8 +179,7 @@ void test("a missing token or chat fails before the agent turn", async () => {
         TELEGRAM_BOT_TOKEN: "bot-token",
         TELEGRAM_ALLOWED_USER_IDS: " , ",
       },
-      expected:
-        "No target chat — set TELEGRAM_DIGEST_CHAT_ID or TELEGRAM_ALLOWED_USER_IDS in .env",
+      expected: "No target chat — set TELEGRAM_NOTIFICATION_CHAT_ID in .env",
     },
   ]) {
     const remind = remindCommand(

@@ -1173,10 +1173,7 @@ elif prompt_yes_no "$(t "Set up autostart via systemd (service + watchdog timers
 
   # Instant confirmation in Telegram (direct Bot API — doesn't depend on the server).
   _bot="$(grep -E '^TELEGRAM_BOT_TOKEN=' .env | head -n1 | cut -d= -f2- | tr -d '"' || true)"
-  _chat="$(grep -E '^TELEGRAM_DIGEST_CHAT_ID=' .env | head -n1 | cut -d= -f2- | tr -d '"' || true)"
-  if [ -z "$_chat" ]; then
-    _chat="$(grep -E '^TELEGRAM_ALLOWED_USER_IDS=' .env | head -n1 | cut -d= -f2- | tr -d '"' | cut -d, -f1 || true)"
-  fi
+  _chat="$(grep -E '^TELEGRAM_NOTIFICATION_CHAT_ID=' .env | head -n1 | cut -d= -f2- | tr -d '"' || true)"
   if [ -n "$_bot" ] && [ -n "$_chat" ]; then
     curl -s "https://api.telegram.org/bot$_bot/sendMessage" \
       --data-urlencode "chat_id=$_chat" \
