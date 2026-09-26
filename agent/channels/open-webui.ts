@@ -18,6 +18,11 @@ import {
   parseOpenAiChatRequest,
 } from "../lib/open-webui.js";
 import { openWebUiAttachments } from "../lib/open-webui-media.js";
+import { notificationClientScript } from "../lib/notification-client.js";
+import {
+  listNotifications,
+  markNotificationRead,
+} from "../lib/notification-store.js";
 import { sanitizeInbound } from "../lib/security-gate.js";
 import { appendDaily, localStamp, saveBlob } from "../lib/vault-daily.js";
 import { transcribe } from "../transcribe.js";
@@ -28,6 +33,19 @@ type StreamEvent = {
 };
 
 const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
+
+function allowedNotificationOrigin(request: Request): boolean {
+  const origin = request.headers.get("origin");
+  const port = process.env.LIBRECHAT_PORT?.trim() || "3080";
+  return (
+    origin === `http://127.0.0.1:${port}` ||
+    origin === `http://localhost:${port}`
+  );
+}
+
+function denyNotificationOrigin(): Response {
+  return Response.json({ error: "forbidden origin" }, { status: 403 });
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -175,7 +193,7 @@ function liveCompletionStream(
 
       void (async () => {
         const stream = await session.getEventStream({ startIndex });
-        reader = stream.getReader() as ReadableStreamDefaultReader<StreamEvent>;
+        reader = stream.getReader();
         const streamedSteps = new Set<number>();
         write(openAiStreamChunk(state, "", { role: true }));
 
@@ -233,14 +251,78 @@ function liveCompletionStream(
 }
 
 export default defineChannel({
+  // Notification API requests are additionally restricted to the configured
+  // loopback LibreChat origin. `cors: true` lets Eve answer browser preflights.
+  cors: true,
   routes: [
-    GET("/v1/models", async (request) => {
+    GET("/iva/notifications/client.js", () =>
+      Promise.resolve(
+        new Response(notificationClientScript, {
+          headers: {
+            "content-type": "text/javascript; charset=utf-8",
+            "cache-control": "no-cache",
+          },
+        }),
+      ),
+    ),
+    GET("/iva/notifications", async (request) => {
+      if (!allowedNotificationOrigin(request)) return denyNotificationOrigin();
+      try {
+        const notifications = (await listNotifications()).map((item) => ({
+          ...item,
+          body: redactNotice(item.body),
+          title: redactNotice(item.title),
+        }));
+        return Response.json(
+          {
+            notifications,
+            unread: notifications.filter((item) => !item.readAt).length,
+          },
+          { headers: { ...jsonHeaders, "cache-control": "no-store" } },
+        );
+      } catch (error) {
+        console.error("[notifications] list failed:", error);
+        return Response.json(
+          { error: "notification inbox unavailable" },
+          { status: 500 },
+        );
+      }
+    }),
+    POST("/iva/notifications/read-all", async (request) => {
+      if (!allowedNotificationOrigin(request)) return denyNotificationOrigin();
+      try {
+        return Response.json({ changed: await markNotificationRead() });
+      } catch (error) {
+        console.error("[notifications] acknowledge all failed:", error);
+        return Response.json(
+          { error: "notification inbox unavailable" },
+          { status: 500 },
+        );
+      }
+    }),
+    POST("/iva/notifications/:id/read", async (request, { params }) => {
+      if (!allowedNotificationOrigin(request)) return denyNotificationOrigin();
+      try {
+        return Response.json({
+          changed: await markNotificationRead(params.id),
+        });
+      } catch (error) {
+        console.error("[notifications] acknowledge failed:", error);
+        return Response.json(
+          { error: "notification inbox unavailable" },
+          { status: 500 },
+        );
+      }
+    }),
+    GET("/v1/models", (request) => {
       const denied = requireAdapterAuth(request);
-      if (denied) return denied;
-      return Response.json({
-        object: "list",
-        data: [{ id: "iva", object: "model", created: 0, owned_by: "iva" }],
-      });
+      if (denied) return Promise.resolve(denied);
+      return Promise.resolve(
+        Response.json({
+          object: "list",
+          data: [{ id: "iva", object: "model", created: 0, owned_by: "iva" }],
+        }),
+      );
     }),
     POST("/v1/audio/transcriptions", async (request) => {
       const denied = requireAdapterAuth(request);

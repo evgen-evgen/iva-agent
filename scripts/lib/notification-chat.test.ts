@@ -1,31 +1,31 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { notificationChat } from "./notification-chat.ts";
+import { diagnosticChat, notificationChat } from "./notification-chat.ts";
 
-void test("notification chat uses the configured digest chat", () => {
+void test("notification chat uses only its explicit destination", () => {
   assert.equal(
     notificationChat({
-      TELEGRAM_DIGEST_CHAT_ID: "99",
+      TELEGRAM_NOTIFICATION_CHAT_ID: "99",
       TELEGRAM_ALLOWED_USER_IDS: "1,2",
     }),
     "99",
   );
 });
 
-void test("notification chat falls back to the first trusted user", () => {
+void test("notification chat does not infer a destination from the inbound allowlist", () => {
   assert.equal(
     notificationChat({
-      TELEGRAM_DIGEST_CHAT_ID: "",
+      TELEGRAM_NOTIFICATION_CHAT_ID: "",
       TELEGRAM_ALLOWED_USER_IDS: " 1, 2",
     }),
-    "1",
+    "",
   );
 });
 
-void test("notification chat is empty without a digest chat or trusted user", () => {
+void test("notification chat is empty without an explicit destination", () => {
   assert.equal(
     notificationChat({
-      TELEGRAM_DIGEST_CHAT_ID: "",
+      TELEGRAM_NOTIFICATION_CHAT_ID: "",
       TELEGRAM_ALLOWED_USER_IDS: "",
     }),
     "",
@@ -36,9 +36,20 @@ void test("notification chat is empty when Telegram is disabled", () => {
   assert.equal(
     notificationChat({
       TELEGRAM_ENABLED: "false",
-      TELEGRAM_DIGEST_CHAT_ID: "99",
+      TELEGRAM_NOTIFICATION_CHAT_ID: "99",
       TELEGRAM_ALLOWED_USER_IDS: "1,2",
     }),
     "",
   );
+});
+
+void test("diagnostic alerts use only the explicit diagnostic channel", () => {
+  assert.equal(
+    diagnosticChat({
+      TELEGRAM_DIAGNOSTIC_CHAT_ID: "-10099",
+      TELEGRAM_NOTIFICATION_CHAT_ID: "42",
+    }),
+    "-10099",
+  );
+  assert.equal(diagnosticChat({ TELEGRAM_NOTIFICATION_CHAT_ID: "42" }), "");
 });

@@ -24,7 +24,7 @@ import {
   alertResolved,
   noticeTranslator,
 } from "../lib/notice-policy.ts";
-import { notificationChat } from "../lib/notification-chat.ts";
+import { diagnosticChat } from "../lib/notification-chat.ts";
 import { redactNotice } from "../lib/notice.ts";
 import { resolveDataDir } from "../lib/data-dir.ts";
 import { resolveTimeZone } from "../lib/timezone.ts";
@@ -36,7 +36,7 @@ const DATA_DIR = resolveDataDir(process.cwd());
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const SCRIPTS = resolve(ROOT, "scripts/autograph");
 const BOT = process.env.TELEGRAM_BOT_TOKEN;
-const CHAT = notificationChat(); // admin chat
+const CHAT = diagnosticChat();
 const TZ = resolveTimeZone(process.env.ASSISTANT_TIMEZONE);
 
 function shellQuote(value: string): string {
@@ -115,12 +115,38 @@ function run(cmd: string, args: string[], cwd = VAULT) {
 // message really reached Telegram — an alert that never left must not silence the next one.
 async function telegram(message: string): Promise<boolean> {
   const text = await redactNotice(message);
+  // Brain must still run when the authored agent tree itself is damaged. Keep the inbox
+  // dependency optional here; Telegram remains the fallback if that tree cannot load.
+  let notificationId: string | undefined;
+  let updateDelivery:
+    | ((
+        id: string,
+        status: "failed" | "sent" | "skipped",
+        error?: string,
+      ) => Promise<void>)
+    | undefined;
+  try {
+    const store = await import("#lib/notification-store.ts");
+    const notification = await store.createNotification({
+      body: text,
+      kind: "alert",
+      source: "memory-brain",
+      title: "Обслуживание памяти требует внимания",
+    });
+    notificationId = notification.id;
+    updateDelivery = store.setNotificationTelegramDelivery;
+  } catch {
+    // The authored-tree alert below must remain deliverable even when this import is the
+    // damaged component. The ordinary stderr/Telegram path continues.
+  }
   if (!BOT || !CHAT) {
     console.error(
-      "brain: no TELEGRAM_BOT_TOKEN/TELEGRAM_DIGEST_CHAT_ID — alert not sent:",
+      "brain: no TELEGRAM_BOT_TOKEN/TELEGRAM_DIAGNOSTIC_CHAT_ID — alert saved for LibreChat only:",
       text,
     );
-    return false;
+    if (notificationId && updateDelivery)
+      await updateDelivery(notificationId, "skipped").catch(() => {});
+    return notificationId !== undefined;
   }
   const res = await fetch(`https://api.telegram.org/bot${BOT}/sendMessage`, {
     method: "POST",
@@ -128,13 +154,14 @@ async function telegram(message: string): Promise<boolean> {
     body: JSON.stringify({ chat_id: CHAT, text }),
   });
   if (!res.ok) {
-    console.error(
-      "brain: Telegram sendMessage failed:",
-      res.status,
-      await res.text(),
-    );
-    return false;
+    const error = `${res.status} ${await res.text()}`;
+    if (notificationId && updateDelivery)
+      await updateDelivery(notificationId, "failed", error).catch(() => {});
+    console.error("brain: Telegram sendMessage failed:", error);
+    return notificationId !== undefined;
   }
+  if (notificationId && updateDelivery)
+    await updateDelivery(notificationId, "sent").catch(() => {});
   return true;
 }
 

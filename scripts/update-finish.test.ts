@@ -630,7 +630,7 @@ test("a unit-write fault restores the captured legacy Brain owner", () => {
 /** Установка с настроенным чатом: `.env` — единственный источник токена и чата. */
 function installationWithChat(
   t: { after(fn: () => void): void },
-  env = "TELEGRAM_BOT_TOKEN=token\nTELEGRAM_DIGEST_CHAT_ID=42\nAGENT_LANGUAGE=en\n",
+  env = "TELEGRAM_BOT_TOKEN=token\nTELEGRAM_NOTIFICATION_CHAT_ID=42\nAGENT_LANGUAGE=en\n",
 ): ReturnType<typeof layoutFor> {
   const home = mkdtempSync(join(tmpdir(), "iva-plugin-alert-"));
   t.after(() => rmSync(home, { recursive: true, force: true }));

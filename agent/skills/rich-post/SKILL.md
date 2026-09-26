@@ -32,9 +32,9 @@ this skill.
 iva post --md-file /tmp/post.md
 ```
 
-- Recipient: by default the message goes to `TELEGRAM_DIGEST_CHAT_ID` from
+- Recipient: by default the message goes to `TELEGRAM_NOTIFICATION_CHAT_ID` from
   `.env`. An explicit `--chat <id>` is accepted ONLY if the id is allowlisted
-  (`TELEGRAM_ALLOWED_USER_IDS` + `TELEGRAM_DIGEST_CHAT_ID`) — the recipient of
+  (`TELEGRAM_ALLOWED_USER_IDS` + `TELEGRAM_NOTIFICATION_CHAT_ID`) — the recipient of
   a report is the owner's setting, not the model's choice. Anything else is
   refused without sending.
 - `--md` / `--md-file` — markdown content (`--md-file -` reads stdin).
@@ -73,7 +73,7 @@ afterwards is fine.
 
 1. **Write content** in markdown (see syntax below) to a temp file.
 2. **`--dry-run`** to verify layout and image paths (offline).
-3. **Send** — to the default digest chat, or an allowlisted `--chat`. For
+3. **Send** — to the explicit notification chat, or an allowlisted `--chat`. For
    images add `--allow-upload` consciously (see above). Confirm with the user
    before posting anywhere beyond the current conversation.
 

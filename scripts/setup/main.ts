@@ -289,7 +289,8 @@ async function writeEnv(out: Env): Promise<void> {
     "TELEGRAM_BOT_USERNAME",
     "TELEGRAM_WEBHOOK_SECRET_TOKEN",
     "TELEGRAM_ALLOWED_USER_IDS",
-    "TELEGRAM_DIGEST_CHAT_ID",
+    "TELEGRAM_NOTIFICATION_CHAT_ID",
+    "TELEGRAM_DIAGNOSTIC_CHAT_ID",
     "DEEPGRAM_API_KEY",
     "DEEPGRAM_LANGUAGE",
     "SEARCH_PROVIDER",
@@ -1173,8 +1174,9 @@ async function main() {
     }
   }
   out.TELEGRAM_ALLOWED_USER_IDS = [...ids].join(",");
-  out.TELEGRAM_DIGEST_CHAT_ID =
-    existing.TELEGRAM_DIGEST_CHAT_ID || [...ids][0] || "";
+  out.TELEGRAM_NOTIFICATION_CHAT_ID =
+    existing.TELEGRAM_NOTIFICATION_CHAT_ID || [...ids][0] || "";
+  out.TELEGRAM_DIAGNOSTIC_CHAT_ID = existing.TELEGRAM_DIAGNOSTIC_CHAT_ID || "";
   console.log(
     `  → ${t("access granted to ID", "доступ разрешён ID")}: ${C.g}${out.TELEGRAM_ALLOWED_USER_IDS}${C.x}`,
   );

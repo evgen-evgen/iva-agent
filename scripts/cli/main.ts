@@ -106,7 +106,7 @@ ${C.b}Commands:${C.x}
   ${C.c}iva trace${C.x} <cmd>      the turn journal: tail|show [turn]|open
   ${C.c}iva notify${C.x} <text>    send one Telegram message verbatim
   ${C.c}iva remind${C.x} <text>    let the agent judge one Reminder, then send it to Telegram
-  ${C.c}iva post${C.x} --md-file <p>  rich Telegram post to the digest chat or an allowlisted --chat
+  ${C.c}iva post${C.x} --md-file <p>  rich Telegram post to the notification chat or an allowlisted --chat
   ${C.c}iva userbot${C.x} [creds|setup|status|diagnose --json|off]  personal-account userbot proxy
   ${C.c}iva logs${C.x} [poll]     agent logs (or the Telegram bridge) -f
   ${C.c}iva uninstall${C.x}       remove units and the command (--purge — delete code+vault)

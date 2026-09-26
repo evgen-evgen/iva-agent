@@ -27,6 +27,8 @@ function notifyCommand(
       sent.push([bot, chat, md]);
       return Promise.resolve(result);
     },
+    recordNotification: () => Promise.resolve({ id: "notification-1" }),
+    setTelegramDelivery: () => Promise.resolve(),
   };
   const cmdNotify = createNotifyCommand(
     {
@@ -40,10 +42,10 @@ function notifyCommand(
   return { cmdNotify, envPath: base.ENV_PATH, messages, read, sent };
 }
 
-void test("the digest chat receives the argument tail joined by single spaces", async () => {
+void test("the explicit notification chat receives the argument tail joined by single spaces", async () => {
   const notify = notifyCommand({
     TELEGRAM_BOT_TOKEN: "bot-token",
-    TELEGRAM_DIGEST_CHAT_ID: "555",
+    TELEGRAM_NOTIFICATION_CHAT_ID: "555",
     TELEGRAM_ALLOWED_USER_IDS: "777,888",
   });
 
@@ -53,36 +55,43 @@ void test("the digest chat receives the argument tail joined by single spaces", 
   assert.deepEqual(notify.sent, [
     ["bot-token", "555", "Позвонить врачу в 17:00"],
   ]);
-  assert.deepEqual(notify.messages, ["Sent to Telegram"]);
+  assert.deepEqual(notify.messages, ["Saved and sent to Telegram"]);
 });
 
-void test("without a digest chat the first allowed user gets the message", async () => {
+void test("the inbound allowlist is never used as an implicit notification destination", async () => {
   const notify = notifyCommand({
     TELEGRAM_BOT_TOKEN: "bot-token",
-    TELEGRAM_DIGEST_CHAT_ID: "  ",
+    TELEGRAM_NOTIFICATION_CHAT_ID: "  ",
     TELEGRAM_ALLOWED_USER_IDS: " 42, 43",
   });
 
-  await notify.cmdNotify(["напоминание"]);
-
-  assert.deepEqual(notify.sent, [["bot-token", "42", "напоминание"]]);
+  await assert.rejects(notify.cmdNotify(["напоминание"]), {
+    message: "No target chat — set TELEGRAM_NOTIFICATION_CHAT_ID in .env",
+  });
+  assert.deepEqual(notify.sent, []);
 });
 
 void test("empty text, a missing token and a missing chat all fail before the network", async () => {
   for (const { args, env, expected } of [
     {
       args: [] as string[],
-      env: { TELEGRAM_BOT_TOKEN: "bot-token", TELEGRAM_DIGEST_CHAT_ID: "555" },
+      env: {
+        TELEGRAM_BOT_TOKEN: "bot-token",
+        TELEGRAM_NOTIFICATION_CHAT_ID: "555",
+      },
       expected: "Nothing to send — usage: iva notify <text>",
     },
     {
       args: ["   "],
-      env: { TELEGRAM_BOT_TOKEN: "bot-token", TELEGRAM_DIGEST_CHAT_ID: "555" },
+      env: {
+        TELEGRAM_BOT_TOKEN: "bot-token",
+        TELEGRAM_NOTIFICATION_CHAT_ID: "555",
+      },
       expected: "Nothing to send — usage: iva notify <text>",
     },
     {
       args: ["текст"],
-      env: { TELEGRAM_DIGEST_CHAT_ID: "555" },
+      env: { TELEGRAM_NOTIFICATION_CHAT_ID: "555" },
       expected: "TELEGRAM_BOT_TOKEN is missing — run: iva config",
     },
     {
@@ -91,8 +100,7 @@ void test("empty text, a missing token and a missing chat all fail before the ne
         TELEGRAM_BOT_TOKEN: "bot-token",
         TELEGRAM_ALLOWED_USER_IDS: " , ",
       },
-      expected:
-        "No target chat — set TELEGRAM_DIGEST_CHAT_ID or TELEGRAM_ALLOWED_USER_IDS in .env",
+      expected: "No target chat — set TELEGRAM_NOTIFICATION_CHAT_ID in .env",
     },
   ]) {
     const notify = notifyCommand(env);
@@ -106,7 +114,7 @@ void test("empty text, a missing token and a missing chat all fail before the ne
 
 void test("a refused send reports the Telegram error and exits one", async () => {
   const notify = notifyCommand(
-    { TELEGRAM_BOT_TOKEN: "bot-token", TELEGRAM_DIGEST_CHAT_ID: "555" },
+    { TELEGRAM_BOT_TOKEN: "bot-token", TELEGRAM_NOTIFICATION_CHAT_ID: "555" },
     { ok: false, fellBack: false, error: "403: bot was blocked by the user" },
   );
   const events: string[] = [];

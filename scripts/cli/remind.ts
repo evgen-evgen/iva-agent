@@ -24,6 +24,17 @@ export type RemindDependencies = {
   readonly runAgentTurn?: RunAgentTurn;
   readonly timeout?: Timeout;
   readonly timeoutMs?: number;
+  readonly recordNotification?: (input: {
+    readonly body: string;
+    readonly kind: "reminder";
+    readonly source: string;
+    readonly title: string;
+  }) => Promise<{ readonly id: string }>;
+  readonly setTelegramDelivery?: (
+    id: string,
+    status: "failed" | "sent",
+    error?: string,
+  ) => Promise<void>;
 };
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
@@ -83,7 +94,7 @@ export function createRemindCommand(
     const chat = notificationChat(env);
     if (!chat)
       throw new Error(
-        "No target chat — set TELEGRAM_DIGEST_CHAT_ID or TELEGRAM_ALLOWED_USER_IDS in .env",
+        "No target chat — set TELEGRAM_NOTIFICATION_CHAT_ID in .env",
       );
 
     let turn: ReminderTurn | undefined;
@@ -108,10 +119,32 @@ export function createRemindCommand(
     const agentMessage =
       turn?.status !== "failed" && turn?.message ? turn.message : undefined;
     const message = agentMessage ?? `⏰ ${text}`;
+    const notificationModule =
+      dependencies.recordNotification && dependencies.setTelegramDelivery
+        ? undefined
+        : await import("#lib/notification-store.ts");
+    const notification = await (
+      dependencies.recordNotification ?? notificationModule!.createNotification
+    )({
+      body: message,
+      kind: "reminder",
+      source: "iva-remind",
+      title: "⏰ Напоминание",
+    });
     const send =
       dependencies.send ??
       (await import("../lib/telegram-send.ts")).sendTelegramHtml;
     const result = await send(token, chat, message, { retryTransient: true });
+    const setDelivery =
+      dependencies.setTelegramDelivery ??
+      notificationModule!.setNotificationTelegramDelivery;
+    await setDelivery(
+      notification.id,
+      result.ok ? "sent" : "failed",
+      result.ok ? undefined : result.error,
+    ).catch((error: unknown) =>
+      console.error("Reminder delivery status was not saved:", error),
+    );
     if (!result.ok)
       throw new Error(`Reminder Telegram send failed: ${result.error}`);
     if (agentMessage && result.fellBack && turn?.feedback) {
@@ -126,6 +159,6 @@ export function createRemindCommand(
         // Delivery succeeded; the formatting hint just will not reach this turn.
       }
     }
-    ok("Reminder sent to Telegram");
+    ok("Reminder saved and sent to Telegram");
   };
 }

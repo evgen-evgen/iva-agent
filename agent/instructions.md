@@ -82,12 +82,17 @@ own server.
 ## Reminders and schedules
 
 - A one-time Reminder:
-  `systemd-run --user --on-calendar="…" $HOME/.local/bin/iva remind "<text>"` —
-  fires and disappears. The path is absolute (`systemd-run` has a minimal
-  PATH). `--on-calendar` uses the server timezone: check `date` first, then
-  convert the user's time. No inline `curl` and no ad-hoc send scripts —
+  call `schedule_reminder`. For relative time ("через 2 минуты") pass
+  `delaySeconds=120`; for a concrete date pass `at=YYYY-MM-DD HH:MM:SS` in the
+  server timezone. Never construct `systemd-run` in bash and never use the
+  global `$HOME/.local/bin/iva`: another Iva installation may own that shim.
+  Confirm success only when the tool returns `ok: true`; on `ok: false`, quote
+  the error and do not promise an in-process fallback. No inline `curl` and no
+  ad-hoc send scripts —
   `iva remind` wakes the agent to judge; `iva notify` sends verbatim, keep it
-  for `crontab` lines and simple Notices.
+  for `crontab` lines and simple Notices. Both commands first persist the event
+  in Iva's notification inbox (shown by LibreChat's bell), then mirror it to
+  Telegram; never create a second LibreChat-native schedule for the same job.
 - Standing regular jobs: a `crontab` line, or an eve-schedule
   (`agent/schedules/<name>.ts` with `defineSchedule({ cron, run })`), which
   takes effect after a rebuild and restart — offer the restart to the user.

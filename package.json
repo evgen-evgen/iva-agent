@@ -10,7 +10,7 @@
     "#evals/*": "./evals/*"
   },
   "scripts": {
-    "iva": "node bin/iva.mjs",
+    "iva": "node --env-file-if-exists=.env bin/iva.mjs",
     "setup": "node scripts/setup.mjs",
     "check-port": "node scripts/check-port.ts",
     "build": "node --env-file-if-exists=.env scripts/build.ts",

@@ -75,7 +75,7 @@ function postCommand(
         ASSISTANT_DATA_DIR: dir,
         TELEGRAM_BOT_TOKEN: "123:FAKE",
         TELEGRAM_ALLOWED_USER_IDS: "111 222",
-        TELEGRAM_DIGEST_CHAT_ID: "999",
+        TELEGRAM_NOTIFICATION_CHAT_ID: "999",
         ...env,
       }),
     send: (token, chat, markdown, options) => {
@@ -349,7 +349,7 @@ void test("аргументы: ровно один источник markdown и 
 });
 
 void test("без чата дайджеста и без --chat отправлять некуда", async (t) => {
-  const post = postCommand(t, { TELEGRAM_DIGEST_CHAT_ID: "  " });
+  const post = postCommand(t, { TELEGRAM_NOTIFICATION_CHAT_ID: "  " });
 
   await assert.rejects(post.cmdPost(["--md", "текст"]), {
     message: /No target chat/u,
@@ -414,7 +414,7 @@ void test("лимит 32768 символов держится и до подст
         Promise.resolve({
           ASSISTANT_DATA_DIR: long.dir,
           TELEGRAM_BOT_TOKEN: "123:FAKE",
-          TELEGRAM_DIGEST_CHAT_ID: "999",
+          TELEGRAM_NOTIFICATION_CHAT_ID: "999",
         }),
       send: () => Promise.resolve({ ok: true, fellBack: false, error: "" }),
       // Публичный URL длиннее локального пути — после подстановки пост перерастает лимит.
@@ -495,7 +495,7 @@ void test("PBT: allowlist разбирается по любым раздели�
           .join("");
         const allowed = allowedChats({
           TELEGRAM_ALLOWED_USER_IDS: raw,
-          TELEGRAM_DIGEST_CHAT_ID: digest,
+          TELEGRAM_NOTIFICATION_CHAT_ID: digest,
         });
 
         assert.deepEqual(

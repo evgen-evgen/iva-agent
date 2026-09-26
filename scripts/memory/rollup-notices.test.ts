@@ -45,11 +45,11 @@ test("what leaves the chat is decided by the policy, not by the script", () => {
   // не решает. Сама отправка остаётся тем же одним швом.
   assert.match(
     block,
-    /report: \(text: string\) =>\s+sendTelegramHtml\(BOT, CHAT, text, \{\s+trace: \{ session: session\.state\.sessionId, source: "rollup" \},/u,
+    /report: \(text: string\) =>\s+sendTelegramHtml\(BOT, NOTIFICATION_CHAT, text, \{\s+trace: \{ session: session\.state\.sessionId, source: "rollup" \},/u,
   );
   assert.match(
     block,
-    /notice: \(text: string\) =>\s+sendTelegramHtml\(BOT, CHAT, text, \{\s+trace: \{ session: session\.state\.sessionId, source: "rollup" \},/u,
+    /notice: \(text: string\) =>\s+sendTelegramHtml\(BOT, NOTIFICATION_CHAT, text, \{\s+trace: \{ session: session\.state\.sessionId, source: "rollup" \},/u,
   );
   // Чат не настроен — решение о Notice всё равно принимается: send просто null.
   assert.match(block, /: null;/u);
@@ -63,6 +63,7 @@ test("the CORE alert goes out through the throttle, not straight to the chat", (
   // Alert не выключается, поэтому не имеет права повторяться чаще раза в неделю: решает
   // это дроссель, а не свёртка (ADR-0007).
   assert.match(seam, /await alertOnce\(DATA_DIR, key, essence,/u);
+  assert.match(seam, /sendTelegramHtml\(BOT, DIAGNOSTIC_CHAT, message,/u);
   assert.equal(seam.split("sendTelegramHtml(").length - 1, 1);
   // Больше отправок в файле нет: два шва отчёта и один шов алерта.
   assert.equal(source.split("sendTelegramHtml(").length - 1, 3);

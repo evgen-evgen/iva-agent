@@ -124,13 +124,14 @@ test("settings.language beats the environment, both ways", (t) => {
   assert.match(runBrain(t, "en", "ru").stderr, /Nightly memory care failed/);
 });
 
-test("an alert that never reached Telegram does not silence the next night", (t) => {
+test("an alert saved to the browser inbox silences the same alert until its retry window", (t) => {
   const first = runBrain(t, null, "ru");
   assert.equal(
     existsSync(join(first.dataDir, "alert-state.json")),
-    false,
-    "nothing was delivered, so nothing may be recorded as delivered",
+    true,
+    "the durable LibreChat inbox counts as delivery even without Telegram",
   );
+  assert.equal(existsSync(join(first.dataDir, "notifications.json")), true);
 });
 
 // Дроссель и текст живут в разных местах, поэтому здесь — только контракт brain.ts: каждая

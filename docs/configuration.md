@@ -45,18 +45,19 @@ For `codex` there is no API key in `.env`: run `iva login` (device code, headles
 
 ## Telegram
 
-| Variable                        | Default   | Notes                                                                                                                      |
-| ------------------------------- | --------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `TELEGRAM_ENABLED`              | `true`    | Set to `false` for browser-only mode. The poller exits without contacting Telegram and Telegram credentials become optional. |
-| `TELEGRAM_BOT_TOKEN`            | —         | From [@BotFather](https://t.me/BotFather). Required only when Telegram is enabled.                                         |
-| `TELEGRAM_BOT_USERNAME`         | —         | Your bot's username. The wizard verifies the token via `getMe` and detects this itself.                                    |
-| `TELEGRAM_WEBHOOK_SECRET_TOKEN` | —         | Shared secret between the long-poll bridge and the local webhook. Any long random string.                                  |
-| `TELEGRAM_ALLOWED_USER_IDS`     | _(empty)_ | Comma-separated numeric user IDs allowed to talk to Iva.                                                                   |
-| `TELEGRAM_DIGEST_CHAT_ID`       | —         | Chat that receives the morning digest, nightly memory reports and one-time stable update offers. Usually your own chat ID. |
+| Variable                        | Default   | Notes                                                                                                                                                    |
+| ------------------------------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TELEGRAM_ENABLED`              | `true`    | Set to `false` for browser-only mode. The poller exits without contacting Telegram and Telegram credentials become optional.                             |
+| `TELEGRAM_BOT_TOKEN`            | —         | From [@BotFather](https://t.me/BotFather). Required only when Telegram is enabled.                                                                       |
+| `TELEGRAM_BOT_USERNAME`         | —         | Your bot's username. The wizard verifies the token via `getMe` and detects this itself.                                                                  |
+| `TELEGRAM_WEBHOOK_SECRET_TOKEN` | —         | Shared secret between the long-poll bridge and the local webhook. Any long random string.                                                                |
+| `TELEGRAM_ALLOWED_USER_IDS`     | _(empty)_ | Comma-separated numeric user IDs allowed to talk to Iva.                                                                                                 |
+| `TELEGRAM_NOTIFICATION_CHAT_ID` | —         | The explicit user destination for reminders, digests, reports and update offers. No fallback to the inbound allowlist. Usually your own private chat ID. |
+| `TELEGRAM_DIAGNOSTIC_CHAT_ID`   | —         | Separate admin channel for technical failures and operational alerts. Never used for user reminders or reports.                                          |
 
 The allowlist is **fail-closed: empty means Iva answers nobody.** The wizard auto-discovers your ID the moment you message the bot; or ask [@userinfobot](https://t.me/userinfobot). Why fail-closed matters: [security.md](./security.md).
 
-At 10:00 in `ASSISTANT_TIMEZONE` Iva checks Git upstream without using the model. It sends nothing unless a higher stable `MAJOR.MINOR.PATCH` version exists, and offers each version only once. If `TELEGRAM_DIGEST_CHAT_ID` is empty, the first trusted ID is used.
+At 10:00 in `ASSISTANT_TIMEZONE` Iva checks Git upstream without using the model. It sends nothing unless a higher stable `MAJOR.MINOR.PATCH` version exists, and offers each version only once. Delivery always uses `TELEGRAM_NOTIFICATION_CHAT_ID`.
 
 ## Voice
 

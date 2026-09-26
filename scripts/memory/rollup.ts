@@ -17,6 +17,10 @@ import { writeFileAtomicSync } from "#lib/fs-atomic.ts";
 import { tr } from "#lib/i18n.ts";
 import { readSettings } from "#lib/settings.ts";
 import {
+  createNotification,
+  setNotificationTelegramDelivery,
+} from "#lib/notification-store.ts";
+import {
   alertOnce,
   alertResolved,
   coreDamageAlert,
@@ -28,7 +32,7 @@ import {
 } from "../lib/notice-policy.ts";
 import { resolveDataDir } from "../lib/data-dir.ts";
 import { resolveTimeZone } from "../lib/timezone.ts";
-import { notificationChat } from "../lib/notification-chat.ts";
+import { diagnosticChat, notificationChat } from "../lib/notification-chat.ts";
 import { readCore } from "./read-core.ts";
 import {
   cancelTurnAndConfirmQuietly,
@@ -60,7 +64,8 @@ const PORT = process.env.IVA_PORT ?? "8723";
 const HOST = process.env.ASSISTANT_HOST ?? `http://127.0.0.1:${PORT}`;
 const BEARER = process.env.ASSISTANT_BEARER; // needed if the prod eve channel requires auth
 const BOT = process.env.TELEGRAM_BOT_TOKEN;
-const CHAT = notificationChat();
+const NOTIFICATION_CHAT = notificationChat();
+const DIAGNOSTIC_CHAT = diagnosticChat();
 // Absolute, like the instructions above: the prompt hands these paths to the model as
 // read_file/write_file targets, and read_file resolves a RELATIVE path against the vault
 // root — a "vault/daily/…" string would come back as vault/vault/daily/… and ENOENT.
@@ -460,18 +465,31 @@ async function alertOwner(
   message: string,
 ): Promise<void> {
   const outcome = await alertOnce(DATA_DIR, key, essence, async () => {
-    if (!BOT || !CHAT) {
+    const notification = await createNotification({
+      body: message,
+      kind: "alert",
+      source: `memory-${period}`,
+      title: "Память Ивы требует внимания",
+    });
+    if (!BOT || !DIAGNOSTIC_CHAT) {
       console.error(
-        `rollup ${period}: no TELEGRAM_BOT_TOKEN/TELEGRAM_DIGEST_CHAT_ID — alert not sent: ${message}`,
+        `rollup ${period}: no TELEGRAM_BOT_TOKEN/TELEGRAM_DIAGNOSTIC_CHAT_ID — alert saved for LibreChat only: ${message}`,
       );
-      return false;
+      await setNotificationTelegramDelivery(notification.id, "skipped");
+      return true;
     }
-    const sent = await sendTelegramHtml(BOT, CHAT, message, {
+    const sent = await sendTelegramHtml(BOT, DIAGNOSTIC_CHAT, message, {
       trace: { session: session.state.sessionId, source: "rollup" },
     });
+    await setNotificationTelegramDelivery(
+      notification.id,
+      sent.ok ? "sent" : "failed",
+      sent.ok ? undefined : sent.error,
+    );
     if (!sent.ok)
       console.error(`rollup ${period}: alert send failed: ${sent.error}`);
-    return sent.ok;
+    // The alert is durably available in LibreChat even when Telegram is temporarily down.
+    return true;
   });
   if (outcome === "throttled")
     console.log(
@@ -570,30 +588,43 @@ console.log(`rollup ${period} (${today}):\n${result.message}`);
 // that reports are now off. Never both, never twice.
 if (REPORTS_TO_TELEGRAM[period]) {
   const settings = readSettings();
+  const notification = memoryReportsEnabled(settings)
+    ? await createNotification({
+        body: result.message,
+        kind: "report",
+        source: `memory-${period}`,
+        title:
+          period === "daily"
+            ? "Ежедневный отчёт памяти"
+            : "Еженедельный отчёт памяти",
+      })
+    : null;
   // markdown → Telegram-HTML conversion, chunking, the outbound Gate and the self-heal all
   // live in the shared seam. No token or chat means no seam — and the policy still decides
   // the one-time notice, so a chat configured later cannot revive a question already closed.
   const send =
-    BOT && CHAT
+    BOT && NOTIFICATION_CHAT
       ? {
           // Ночной ход зовётся своим именем в журнале хода (ADR-0010): без источника
           // вьюер прочитал бы rollup как разговор в Telegram. Сессия — сквозная,
           // по ней читатель сшивает весь ночной ход.
           report: (text: string) =>
-            sendTelegramHtml(BOT, CHAT, text, {
+            sendTelegramHtml(BOT, NOTIFICATION_CHAT, text, {
               trace: { session: session.state.sessionId, source: "rollup" },
             }),
           notice: (text: string) =>
-            sendTelegramHtml(BOT, CHAT, text, {
+            sendTelegramHtml(BOT, NOTIFICATION_CHAT, text, {
               trace: { session: session.state.sessionId, source: "rollup" },
             }),
         }
       : null;
   if (!send && memoryReportsEnabled(settings)) {
+    if (notification)
+      await setNotificationTelegramDelivery(notification.id, "skipped");
     console.error(
-      `rollup ${period}: no TELEGRAM_BOT_TOKEN/TELEGRAM_DIGEST_CHAT_ID — report not sent`,
+      `rollup ${period}: no TELEGRAM_BOT_TOKEN/TELEGRAM_NOTIFICATION_CHAT_ID — report saved for LibreChat only`,
     );
-    process.exit(1);
+    process.exit(0);
   }
   const delivery = await deliverMemoryReport({
     dataDir: DATA_DIR,
@@ -603,6 +634,13 @@ if (REPORTS_TO_TELEGRAM[period]) {
     tr,
     send,
   });
+  if (notification && delivery.status !== "off") {
+    await setNotificationTelegramDelivery(
+      notification.id,
+      delivery.status === "sent" ? "sent" : "failed",
+      delivery.status === "failed" ? delivery.error : undefined,
+    );
+  }
   if (delivery.status === "off") {
     if (delivery.notice === "sent")
       console.log(`rollup ${period}: told the chat that reports are now off`);
