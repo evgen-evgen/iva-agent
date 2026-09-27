@@ -18,7 +18,8 @@ The benchmark is deliberately source-first. It fixes the raw transcripts, expect
 The scenario covers:
 
 - a launch date superseded from 18 to 25 September;
-- a supplier deadline moved from Wednesday to Friday;
+- separate dependent commitments: Ivan's working-access deadline stays Wednesday while
+  NordSupply promises credentials by Friday, and neither inherits the other's date;
 - commitments that are completed, delayed, and still open;
 - a decision that must not auto-revert after its blocker disappears;
 - assistant inference that must not be promoted to user-stated fact;
@@ -93,11 +94,15 @@ the 22 questions in fresh sessions at their intended checkpoints, and writes:
 data/ceo-memory-benchmarks/<timestamp>/stock/
 ├── vault/                 final vault
 ├── snapshots/YYYY-MM-DD/ vault after each processed day
-├── answers/answers.json  raw answers
+├── answers/answers.json  raw answers, plus tool_calls: the tools each session called
 ├── artifact-validation.json mechanical memory-contract checks
 ├── review.md             manual scoring sheet
 └── *.log                 server and rollup logs
 ```
+
+With `--runs N` the same tree appears once per repeat under
+`data/ceo-memory-benchmarks/<timestamp>/run-NN/<mode>/`, and `run.json` keys
+`artifact_validation` as `run-NN/<mode>`.
 
 The benchmark clock is frozen at the day being processed or questioned. Production Iva
 continues to use the real user date and time; the override is active only inside the
@@ -111,8 +116,10 @@ After each rollup, the runner checks that the raw day has a processing marker, t
 summary has the required frontmatter, autograph produced the graph and MOC, and the Delta
 launch-date change is represented with current truth plus history. In `ceo-schema` mode it
 also requires a source-bound commitment plan that classifies every transcript section,
-checks the expected number of open/done commitment cards after every day, validates their
-structured fields, and verifies the exact six-item final lifecycle state. These
+checks the expected number of open/done commitment cards after every day, and compares each
+card against a per-day expected state: owner, deliverable, status, `due_at` and
+`completed_at`. The per-day `due_at` expectation is what catches a dependent promise
+inheriting another party's slipped deadline, which the answer text alone can hide. These
 checks are recorded in `artifact-validation.json`. If any fail, the runner still asks all
 questions and preserves every snapshot and answer, then exits with code `2` and marks
 `run.json` as `completed_with_artifact_failures`. This is a benchmark failure, not a lost run.
@@ -134,12 +141,27 @@ npm run eval:ceo-memory -- --mode stock --skip-questions
 
 # Compare both ontologies using identical sources and questions
 npm run eval:ceo-memory -- --mode both
+
+# Measure run-to-run variance: three full weeks, each under run-NN/
+npm run eval:ceo-memory -- --mode ceo-schema --runs 3
+
+# Auto-grade one run, or every repeat under a benchmark root
+npm run eval:ceo-memory:grade -- data/ceo-memory-benchmarks/<timestamp>/ceo-schema
+npm run eval:ceo-memory:grade -- data/ceo-memory-benchmarks/<timestamp>
 ```
 
-`both` costs more than twice as many model calls as `stock`: CEO-schema adds one narrow
+The grader sends every answer plus its required/forbidden claims to a fresh judge session,
+writes per-run `grade.json`, and for several repeats a `comparison.json` with per-question
+mean score, full-pass rate and the questions whose verdict changed between repeats. It
+exits `2` when any repeat fails. A denial of a forbidden claim counts as correct; only
+asserting it is an error. Judge answers are a first pass — `review.md` and `rubric.md`
+remain the human record.
+
+`--mode both` costs more than twice as many model calls as `stock`: CEO-schema adds one narrow
 commitment pre-pass per day and may retry it once after a contract failure. It is
-intentionally not the default. The runner does not auto-grade answers; use the generated
-`review.md` together with `rubric.md`.
+intentionally not the default. `--runs N` multiplies the cost by N; repeats are isolated
+vaults under `run-01`..`run-NN`, so a single flaky rollup shows up as variance instead of
+being mistaken for a memory-architecture result.
 
 ## Intended experiment
 
@@ -161,6 +183,10 @@ Its fail-closed lifecycle owns creation, rescheduling, completion/cancellation,
 provenance, current truth, and append-only history. Missing, failed, incomplete, or stale
 plans prevent finalization. Generic `write_card` remains schema-driven for the other
 types. Old vaults without the overlay retain stock behavior and pay no extra model call.
+
+Dependent promises never inherit each other's deadlines. In this fixture NordSupply's
+Friday credentials promise does not reschedule Ivan's earlier promise to provide working
+access; only an explicit accepted deadline change can transition that commitment.
 
 ## What v1 does not score
 

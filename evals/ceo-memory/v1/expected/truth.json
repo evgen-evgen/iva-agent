@@ -44,10 +44,10 @@
           "source_refs": ["D2-E01"]
         },
         "api_access_due": {
-          "value": "2026-09-11T10:00:00+02:00",
+          "value": "2026-09-09T12:00:00+02:00",
           "status": "open",
           "owner": "Иван Петров",
-          "source_refs": ["D1-E04", "D2-E01"]
+          "source_refs": ["D1-E04"]
         },
         "acme_proposal": {
           "status": "done",
@@ -71,15 +71,6 @@
           "owner": "Олег Смирнов",
           "source_refs": ["D1-E05"]
         }
-      },
-      "history": {
-        "api_access_due": [
-          {
-            "value": "2026-09-09T12:00:00+02:00",
-            "superseded_by": "2026-09-11T10:00:00+02:00",
-            "source_refs": ["D1-E04", "D2-E01"]
-          }
-        ]
       }
     },
     "2026-09-09": {
@@ -93,10 +84,17 @@
           "source_refs": ["D1-E02"]
         },
         "api_access_due": {
+          "value": "2026-09-09T12:00:00+02:00",
+          "status": "open",
+          "timeliness": "overdue",
+          "owner": "Иван Петров",
+          "source_refs": ["D1-E04"]
+        },
+        "supplier_credentials_due": {
           "value": "2026-09-11T10:00:00+02:00",
           "status": "open",
-          "owner": "Иван Петров",
-          "source_refs": ["D1-E04", "D2-E01"]
+          "owner": "NordSupply",
+          "source_refs": ["D2-E01"]
         },
         "acme_proposal": {
           "status": "done",
@@ -162,10 +160,17 @@
           "source_refs": ["D4-E03"]
         },
         "api_access_due": {
+          "value": "2026-09-09T12:00:00+02:00",
+          "status": "open",
+          "timeliness": "overdue",
+          "owner": "Иван Петров",
+          "source_refs": ["D1-E04"]
+        },
+        "supplier_credentials_due": {
           "value": "2026-09-11T10:00:00+02:00",
           "status": "open",
-          "owner": "Иван Петров",
-          "source_refs": ["D1-E04", "D2-E01"]
+          "owner": "NordSupply",
+          "source_refs": ["D2-E01"]
         },
         "cashflow_due": {
           "value": "2026-09-11T14:00:00+02:00",
@@ -217,8 +222,18 @@
         },
         "api_access": {
           "status": "done",
+          "due": "2026-09-09T12:00:00+02:00",
           "completed_at": "2026-09-11T11:40:00+02:00",
-          "source_refs": ["D5-E01", "D5-E02"]
+          "timeliness": "late",
+          "source_refs": ["D1-E04", "D5-E02"]
+        },
+        "supplier_credentials": {
+          "status": "done",
+          "due": "2026-09-11T10:00:00+02:00",
+          "completed_at": "2026-09-11T09:18:00+02:00",
+          "timeliness": "on_time",
+          "owner": "NordSupply",
+          "source_refs": ["D2-E01", "D5-E01"]
         },
         "cashflow": {
           "status": "done",
@@ -256,13 +271,17 @@
         {
           "owner": "Иван Петров",
           "deliverable": "Obtain working NordSupply API access",
+          "due": "2026-09-09T12:00:00+02:00",
           "completed_at": "2026-09-11T11:40:00+02:00",
-          "source_refs": ["D1-E04", "D2-E01", "D5-E02"]
+          "timeliness": "late",
+          "source_refs": ["D1-E04", "D5-E02"]
         },
         {
           "owner": "NordSupply",
           "deliverable": "Provide API credentials",
+          "due": "2026-09-11T10:00:00+02:00",
           "completed_at": "2026-09-11T09:18:00+02:00",
+          "timeliness": "on_time",
           "source_refs": ["D2-E01", "D5-E01"]
         },
         {
