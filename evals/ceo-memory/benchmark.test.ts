@@ -14,6 +14,7 @@ import { after, test } from "node:test";
 import {
   benchmarkModelMetadata,
   deepMerge,
+  extractToolCalls,
   failedRunRecord,
   normalizeQuestionResult,
   parseArgs,
@@ -42,7 +43,53 @@ test("benchmark CLI defaults to a safe single stock run", () => {
     mode: "stock",
     prepareOnly: false,
     skipQuestions: false,
+    runs: 1,
   });
+});
+
+test("tool trace records memory_search calls of a question turn", () => {
+  const calls = extractToolCalls([
+    { type: "turn.started", data: {} },
+    {
+      type: "actions.requested",
+      data: {
+        actions: [
+          {
+            kind: "tool-call",
+            toolName: "memory_search",
+            input: { query: "NordSupply credentials" },
+            callId: "c1",
+          },
+          {
+            kind: "load-skill",
+            toolName: "morning-digest",
+            input: {},
+            callId: "c2",
+          },
+        ],
+      },
+    },
+    {
+      type: "actions.requested",
+      data: {
+        actions: [
+          {
+            kind: "tool-call",
+            toolName: "read_file",
+            input: { path: "cards/commitments/x.md" },
+            callId: "c3",
+          },
+        ],
+      },
+    },
+  ]);
+  assert.deepEqual(calls, [
+    {
+      tool: "memory_search",
+      input: { query: "NordSupply credentials" },
+    },
+    { tool: "read_file", input: { path: "cards/commitments/x.md" } },
+  ]);
 });
 
 test("benchmark CLI parses explicit modes and non-model preparation", () => {
@@ -54,15 +101,22 @@ test("benchmark CLI parses explicit modes and non-model preparation", () => {
       "data/custom-eval",
       "--prepare-only",
       "--skip-questions",
+      "--runs",
+      "3",
     ]),
     {
       mode: "both",
       output: "data/custom-eval",
       prepareOnly: true,
       skipQuestions: true,
+      runs: 3,
     },
   );
+  assert.deepEqual(parseArgs([]).runs, 1);
   assert.throws(() => parseArgs(["--mode", "magic"]), /stock/);
+  assert.throws(() => parseArgs(["--runs", "0"]), /between 1 and/);
+  assert.throws(() => parseArgs(["--runs", "2.5"]), /between 1 and/);
+  assert.throws(() => parseArgs(["--runs"]), /between 1 and/);
   assert.throws(() => parseArgs(["--wat"]), /Unknown argument/);
 });
 
@@ -370,5 +424,63 @@ test("CEO commitment validator exposes missing materialization", async () => {
   assert.deepEqual(
     issues.map(({ code }) => code),
     ["missing-commitment-directory"],
+  );
+});
+test("day-level contract catches inherited deadlines on the day they happen", async () => {
+  const vault = tempDir();
+  const directory = join(vault, "cards", "commitments");
+  mkdirSync(directory, { recursive: true });
+  const cards = [
+    {
+      // BUG: NordSupply's Friday slip was copied onto Ivan's own deadline.
+      id: "ivan-petrov-nordsupply-api-access",
+      owner: "Ivan Petrov",
+      deliverable: "Obtain working NordSupply API access",
+      dueAt: "2026-09-11T10:00:00+02:00",
+      status: "open" as const,
+    },
+    {
+      id: "nordsupply-api-credentials",
+      owner: "NordSupply",
+      deliverable: "Provide API credentials",
+      dueAt: "2026-09-11T10:00:00+02:00",
+      status: "open" as const,
+    },
+    {
+      id: "marina-acme-proposal",
+      owner: "Marina Volkova",
+      deliverable: "Send updated commercial proposal to Acme",
+      dueAt: "2026-09-08T17:00:00+02:00",
+      status: "done" as const,
+      completedAt: "2026-09-08T16:42:00+02:00",
+    },
+    {
+      id: "oleg-delta-cash-flow",
+      owner: "Oleg Smirnov",
+      deliverable: "Provide Delta cash-flow forecast",
+      dueAt: "2026-09-10",
+      status: "open" as const,
+    },
+    {
+      id: "oleg-acme-margin",
+      owner: "Oleg Smirnov",
+      deliverable: "Confirm margin for Acme price validity",
+      dueAt: "2026-09-09T10:00:00+02:00",
+      status: "open" as const,
+    },
+  ];
+  for (const card of cards) {
+    writeFileSync(join(directory, `${card.id}.md`), commitmentCard(card));
+  }
+
+  const issues = await validateCeoCommitments(vault, "2026-09-08");
+  assert.deepEqual(
+    issues.map(({ code, path }) => ({ code, path })),
+    [
+      {
+        code: "incorrect-commitment-state-due-at",
+        path: "cards/commitments/ivan-petrov-nordsupply-api-access.md",
+      },
+    ],
   );
 });

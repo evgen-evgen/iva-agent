@@ -38,6 +38,7 @@ type CliOptions = {
   output?: string;
   prepareOnly: boolean;
   skipQuestions: boolean;
+  runs: number;
 };
 
 type Scenario = {
@@ -73,7 +74,32 @@ type Answer = {
   status: string;
   transport_status?: string;
   error?: string;
+  tool_calls?: ToolCall[];
 };
+
+// Вызовы инструментов одного хода вопроса: без них провал «не вспомнил»
+// неотличим от провала «не поискал».
+export type ToolCall = {
+  tool: string;
+  input: unknown;
+};
+
+export function extractToolCalls(events: readonly unknown[]): ToolCall[] {
+  const calls: ToolCall[] = [];
+  for (const event of events) {
+    if (!isRecord(event) || event.type !== "actions.requested") continue;
+    const data = event.data;
+    if (!isRecord(data) || !Array.isArray(data.actions)) continue;
+    for (const action of data.actions) {
+      if (!isRecord(action) || action.kind !== "tool-call") continue;
+      calls.push({
+        tool: typeof action.toolName === "string" ? action.toolName : "unknown",
+        input: action.input,
+      });
+    }
+  }
+  return calls;
+}
 
 export type ArtifactIssue = {
   date: string;
@@ -82,14 +108,14 @@ export type ArtifactIssue = {
   message: string;
 };
 
-type ServerHandle = {
+export type ServerHandle = {
   child: ChildProcess;
   host: string;
   bearer: string;
   logPath: string;
 };
 
-type BenchmarkModelMetadata = {
+export type BenchmarkModelMetadata = {
   provider: string;
   model: string;
   vision_model: string;
@@ -137,11 +163,14 @@ export async function resetDailyRollupSession(dataDir: string): Promise<void> {
   await rm(join(dataDir, DAILY_ROLLUP_SESSION_FILE), { force: true });
 }
 
+export const MAX_RUNS = 10;
+
 export function parseArgs(args: readonly string[]): CliOptions {
   const options: CliOptions = {
     mode: "stock",
     prepareOnly: false,
     skipQuestions: false,
+    runs: 1,
   };
 
   for (let index = 0; index < args.length; index++) {
@@ -156,6 +185,18 @@ export function parseArgs(args: readonly string[]): CliOptions {
       const output = args[++index];
       if (!output) throw new Error("--output requires a path");
       options.output = output;
+    } else if (arg === "--runs") {
+      const raw = args[++index];
+      const runs = Number(raw);
+      if (
+        raw === undefined ||
+        !Number.isInteger(runs) ||
+        runs < 1 ||
+        runs > MAX_RUNS
+      ) {
+        throw new Error(`--runs must be an integer between 1 and ${MAX_RUNS}`);
+      }
+      options.runs = runs;
     } else if (arg === "--prepare-only") {
       options.prepareOnly = true;
     } else if (arg === "--skip-questions") {
@@ -178,6 +219,7 @@ function usage(): string {
     "  --output PATH                 New output directory (default: data/ceo-memory-benchmarks/<timestamp>)",
     "  --prepare-only                Create isolated vaults without calling a model",
     "  --skip-questions              Process the week but do not ask recall questions",
+    "  --runs N                      Repeat the full scenario N times (1-10; variance)",
     "  -h, --help                    Show this help",
   ].join("\n");
 }
@@ -407,7 +449,7 @@ async function waitForHealth(server: ServerHandle): Promise<void> {
   );
 }
 
-async function startServer({
+export async function startServer({
   appRoot,
   vault,
   data,
@@ -446,7 +488,7 @@ async function startServer({
   return { server, env };
 }
 
-async function stopServer(server: ServerHandle | null): Promise<void> {
+export async function stopServer(server: ServerHandle | null): Promise<void> {
   if (!server || server.child.exitCode !== null || !server.child.pid) return;
   const exited = new Promise<void>((resolveExit) =>
     server.child.once("exit", () => resolveExit()),
@@ -495,7 +537,7 @@ async function runCommand(
   });
 }
 
-async function sendQuestion(
+export async function sendQuestion(
   server: ServerHandle,
   prompt: string,
 ): Promise<{
@@ -503,6 +545,7 @@ async function sendQuestion(
   reply: string | null;
   transport_status?: string;
   error?: string;
+  tool_calls?: ToolCall[];
 }> {
   const client = new Client({
     host: server.host,
@@ -518,6 +561,7 @@ async function sendQuestion(
     reply: string | null;
     transport_status?: string;
     error?: string;
+    tool_calls?: ToolCall[];
   };
   try {
     const result = await Promise.race([
@@ -531,6 +575,8 @@ async function sendQuestion(
       }),
     ]);
     answer = normalizeQuestionResult(result);
+    const toolCalls = extractToolCalls(result.events ?? []);
+    if (toolCalls.length > 0) answer.tool_calls = toolCalls;
   } catch (error) {
     answer = {
       status: "error",
@@ -552,6 +598,7 @@ export function normalizeQuestionResult(result: {
   reply: string | null;
   transport_status?: string;
   error?: string;
+  tool_calls?: ToolCall[];
 } {
   const reply = result.message?.trim() || null;
   if (result.status === "failed") {
@@ -775,6 +822,123 @@ const EXPECTED_COMMITMENT_COUNTS: Record<
   "2026-09-11": { total: 6, open: 1, done: 5 },
 };
 
+// Write-layer contract from expected/truth.json checked mechanically against
+// each day's snapshot, so deadline-inheritance regressions surface on the day
+// they happen instead of only at the final checkpoint.
+type ExpectedCommitmentState = {
+  label: string;
+  owner: RegExp[];
+  deliverable: RegExp[];
+  status: "open" | "done" | "cancelled";
+  dueAt?: string;
+  completedAt?: string;
+};
+
+const EXPECTED_COMMITMENT_STATES: Record<string, ExpectedCommitmentState[]> = {
+  "2026-09-08": [
+    {
+      label: "Ivan API access",
+      owner: [/ivan|иван/, /petrov|петров/],
+      deliverable: [/api|апи/, /access|доступ/],
+      status: "open",
+      dueAt: "2026-09-09T12:00",
+    },
+    {
+      label: "NordSupply credentials",
+      owner: [/nordsupply|нордсапплай/],
+      deliverable: [/credential|учетн|доступ|реквизит/],
+      status: "open",
+      dueAt: "2026-09-11T10:00",
+    },
+    {
+      label: "Marina proposal",
+      owner: [/marina|марина/],
+      deliverable: [/proposal|предложен|коммерческ|\bкп\b/],
+      status: "done",
+      completedAt: "2026-09-08T16:42",
+    },
+  ],
+  "2026-09-09": [
+    {
+      label: "Ivan API access",
+      owner: [/ivan|иван/, /petrov|петров/],
+      deliverable: [/api|апи/, /access|доступ/],
+      status: "open",
+      dueAt: "2026-09-09T12:00",
+    },
+    {
+      label: "Oleg margin check",
+      owner: [/oleg|олег/, /smirnov|смирнов/],
+      deliverable: [/margin|марж/],
+      status: "done",
+      completedAt: "2026-09-09T08:10",
+    },
+    {
+      label: "Oleg cash-flow",
+      owner: [/oleg|олег/, /smirnov|смирнов/],
+      deliverable: [/cash.?flow|денежн|кэш/],
+      status: "open",
+      dueAt: "2026-09-11T14:00",
+    },
+  ],
+  "2026-09-10": [
+    {
+      label: "Ivan API access",
+      owner: [/ivan|иван/, /petrov|петров/],
+      deliverable: [/api|апи/, /access|доступ/],
+      status: "open",
+      dueAt: "2026-09-09T12:00",
+    },
+  ],
+  "2026-09-11": [
+    {
+      label: "Marina proposal",
+      owner: [/marina|марина/],
+      deliverable: [/proposal|предложен|коммерческ|\bкп\b/],
+      status: "done",
+      completedAt: "2026-09-08T16:42",
+    },
+    {
+      label: "Ivan API access",
+      owner: [/ivan|иван/, /petrov|петров/],
+      deliverable: [/api|апи/, /access|доступ/],
+      status: "done",
+      dueAt: "2026-09-09T12:00",
+      completedAt: "2026-09-11T11:40",
+    },
+    {
+      label: "NordSupply credentials",
+      owner: [/nordsupply|нордсапплай/],
+      deliverable: [/credential|учетн|доступ|реквизит/],
+      status: "done",
+      dueAt: "2026-09-11T10:00",
+      completedAt: "2026-09-11T09:18",
+    },
+    {
+      label: "Oleg cash-flow",
+      owner: [/oleg|олег/, /smirnov|смирнов/],
+      deliverable: [/cash.?flow|денежн|кэш/],
+      status: "done",
+      dueAt: "2026-09-11T14:00",
+      completedAt: "2026-09-11T13:30",
+    },
+    {
+      label: "Oleg margin check",
+      owner: [/oleg|олег/, /smirnov|смирнов/],
+      deliverable: [/margin|марж/],
+      status: "done",
+      completedAt: "2026-09-09T08:10",
+    },
+    {
+      label: "Marina contract",
+      owner: [/marina|марина/, /volkova|волкова/],
+      deliverable: [/contract|договор/],
+      status: "open",
+      dueAt: "2026-09-14T16:00",
+    },
+  ],
+};
+
 function scalar(
   fields: Record<string, string | string[]> | null,
   key: string,
@@ -959,106 +1123,58 @@ export async function validateCeoCommitments(
     );
   }
 
-  if (date === "2026-09-11") {
-    const finalExpected = [
-      {
-        label: "Marina proposal",
-        owner: [/marina|марина/],
-        deliverable: [/proposal|предложен|коммерческ|\bкп\b/],
-        status: "done",
-        completedAt: "2026-09-08T16:42",
-      },
-      {
-        label: "Ivan API access",
-        owner: [/ivan|иван/, /petrov|петров/],
-        deliverable: [/api|апи/, /access|доступ/],
-        status: "done",
-        completedAt: "2026-09-11T11:40",
-      },
-      {
-        label: "NordSupply credentials",
-        owner: [/nordsupply|нордсапплай/],
-        deliverable: [/credential|учетн|доступ|реквизит/],
-        status: "done",
-        completedAt: "2026-09-11T09:18",
-      },
-      {
-        label: "Oleg cash-flow",
-        owner: [/oleg|олег/, /smirnov|смирнов/],
-        deliverable: [/cash.?flow|денежн|кэш/],
-        status: "done",
-        dueAt: "2026-09-11T14:00",
-        completedAt: "2026-09-11T13:30",
-      },
-      {
-        label: "Oleg margin check",
-        owner: [/oleg|олег/, /smirnov|смирнов/],
-        deliverable: [/margin|марж/],
-        status: "done",
-        completedAt: "2026-09-09T08:10",
-      },
-      {
-        label: "Marina contract",
-        owner: [/marina|марина/, /volkova|волкова/],
-        deliverable: [/contract|договор/],
-        status: "open",
-        dueAt: "2026-09-14T16:00",
-      },
-    ] as const;
-
-    for (const expectedCard of finalExpected) {
-      const card = cards.find(
-        (candidate) =>
-          matchesText(candidate.owner, [...expectedCard.owner]) &&
-          matchesText(candidate.deliverable, [...expectedCard.deliverable]),
+  for (const expectedCard of EXPECTED_COMMITMENT_STATES[date] ?? []) {
+    const card = cards.find(
+      (candidate) =>
+        matchesText(candidate.owner, expectedCard.owner) &&
+        matchesText(candidate.deliverable, expectedCard.deliverable),
+    );
+    if (!card) {
+      issues.push(
+        issue(
+          date,
+          "missing-expected-commitment",
+          relativeDir,
+          `Missing expected commitment: ${expectedCard.label}.`,
+        ),
       );
-      if (!card) {
-        issues.push(
-          issue(
-            date,
-            "missing-expected-commitment",
-            relativeDir,
-            `Missing final commitment: ${expectedCard.label}.`,
-          ),
-        );
-        continue;
-      }
-      if (card.status !== expectedCard.status) {
-        issues.push(
-          issue(
-            date,
-            "incorrect-commitment-final-status",
-            card.path,
-            `${expectedCard.label} must be ${expectedCard.status}, got ${card.status}.`,
-          ),
-        );
-      }
-      if (
-        "dueAt" in expectedCard &&
-        minute(card.dueAt) !== expectedCard.dueAt
-      ) {
-        issues.push(
-          issue(
-            date,
-            "incorrect-commitment-final-due-at",
-            card.path,
-            `${expectedCard.label} must be due ${expectedCard.dueAt}, got ${card.dueAt}.`,
-          ),
-        );
-      }
-      if (
-        "completedAt" in expectedCard &&
-        minute(card.completedAt) !== expectedCard.completedAt
-      ) {
-        issues.push(
-          issue(
-            date,
-            "incorrect-commitment-final-completed-at",
-            card.path,
-            `${expectedCard.label} must be completed ${expectedCard.completedAt}, got ${card.completedAt}.`,
-          ),
-        );
-      }
+      continue;
+    }
+    if (card.status !== expectedCard.status) {
+      issues.push(
+        issue(
+          date,
+          "incorrect-commitment-state-status",
+          card.path,
+          `${expectedCard.label} must be ${expectedCard.status}, got ${card.status}.`,
+        ),
+      );
+    }
+    if (
+      expectedCard.dueAt !== undefined &&
+      minute(card.dueAt) !== expectedCard.dueAt
+    ) {
+      issues.push(
+        issue(
+          date,
+          "incorrect-commitment-state-due-at",
+          card.path,
+          `${expectedCard.label} must be due ${expectedCard.dueAt}, got ${card.dueAt}.`,
+        ),
+      );
+    }
+    if (
+      expectedCard.completedAt !== undefined &&
+      minute(card.completedAt) !== expectedCard.completedAt
+    ) {
+      issues.push(
+        issue(
+          date,
+          "incorrect-commitment-state-completed-at",
+          card.path,
+          `${expectedCard.label} must be completed ${expectedCard.completedAt}, got ${card.completedAt}.`,
+        ),
+      );
     }
   }
 
@@ -1224,6 +1340,10 @@ function reviewMarkdown(questions: Question[], answers: Answer[]): string {
   ];
   for (const question of questions) {
     const answer = byId.get(question.id);
+    const tools =
+      answer?.tool_calls && answer.tool_calls.length > 0
+        ? answer.tool_calls.map((call) => call.tool).join(", ")
+        : "none";
     lines.push(
       `## ${question.id} — ${question.category}${question.critical ? " — CRITICAL" : ""}`,
       "",
@@ -1234,6 +1354,8 @@ function reviewMarkdown(questions: Question[], answers: Answer[]): string {
       "**Iva answer:**",
       "",
       answer?.reply ?? `ERROR: ${answer?.error ?? "no answer"}`,
+      "",
+      `**Tools called:** ${tools}`,
       "",
       "**Required claims:**",
       "",
@@ -1317,6 +1439,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
     version: scenario.version,
     created_at: new Date().toISOString(),
     modes,
+    runs: options.runs,
     ...model,
     prepare_only: options.prepareOnly,
     questions: options.skipQuestions ? "skipped" : "enabled",
@@ -1335,22 +1458,36 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
   const validation: ArtifactValidationSummary = {};
   let issueCount = 0;
   let activeMode: Mode = modes[0];
+  let activeRun = 1;
+  const runLabel = (run: number): string =>
+    options.runs > 1 ? `run-${String(run).padStart(2, "0")}` : "";
   try {
-    for (const mode of modes) {
-      activeMode = mode;
-      const issues = await runMode(root, mode, scenario, questions, options);
-      issueCount += issues.length;
-      validation[mode] = {
-        status: issues.length === 0 ? "passed" : "failed",
-        issue_count: issues.length,
-      };
+    for (let run = 1; run <= options.runs; run++) {
+      activeRun = run;
+      const label = runLabel(run);
+      for (const mode of modes) {
+        activeMode = mode;
+        const modeRoot = label ? join(root, label) : root;
+        const issues = await runMode(
+          modeRoot,
+          mode,
+          scenario,
+          questions,
+          options,
+        );
+        issueCount += issues.length;
+        validation[label ? `${label}/${mode}` : mode] = {
+          status: issues.length === 0 ? "passed" : "failed",
+          issue_count: issues.length,
+        };
+      }
     }
   } catch (error) {
-    if (!validation[activeMode]) {
-      validation[activeMode] = {
-        status: "not_completed",
-        issue_count: 0,
-      };
+    const activeKey = runLabel(activeRun)
+      ? `${runLabel(activeRun)}/${activeMode}`
+      : activeMode;
+    if (!validation[activeKey]) {
+      validation[activeKey] = { status: "not_completed", issue_count: 0 };
     }
     const failedRecord = failedRunRecord(
       runRecord,
@@ -1358,6 +1495,7 @@ export async function main(args = process.argv.slice(2)): Promise<void> {
       validation,
       error,
     );
+    if (options.runs > 1) failedRecord.failed_run = activeRun;
     await writeFile(
       join(root, "run.json"),
       `${JSON.stringify(failedRecord, null, 2)}\n`,
