@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "iva-plaud",
+  "version": "0.1.0",
+  "description": "Read Plaud recordings, transcripts, summaries and action items through the official Plaud MCP server.",
+  "keywords": ["plaud", "meetings", "transcripts", "mcp"],
+  "extensions": {}
+}
