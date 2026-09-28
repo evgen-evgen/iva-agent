@@ -20,25 +20,33 @@ Build and start LibreChat and its private MongoDB in another:
 docker compose --profile librechat up -d --build librechat
 ```
 
-Email login stays enabled, but registration is disabled by default. Existing accounts and
-chats remain in the named MongoDB volume. If this is a fresh installation with no account,
-open registration only while creating the first account over the SSH tunnel:
+Email login stays enabled, but browser registration is always disabled. Existing accounts
+and chats remain in the named MongoDB volume. Provision only the technical administrator
+and the CEO. Both will have the LibreChat `ADMIN` role:
 
 ```bash
-LIBRECHAT_ALLOW_REGISTRATION=true docker compose --profile librechat up -d --force-recreate librechat
+npm run librechat:accounts -- admin@example.com ceo@example.com
 ```
 
-Open `http://127.0.0.1:3080`, create the account, then close registration by recreating
-LibreChat without the override:
+Replace the addresses with your actual email addresses. The command reads current accounts
+first and refuses to change anything if it finds an account other than those two. For each
+missing account it runs LibreChat's interactive `create-user` script: enter the requested
+email and password when prompted. Passwords are not arguments or stored in this repository.
+Run it on the machine hosting Docker, then verify the final count and roles at any time:
 
 ```bash
-docker compose --profile librechat up -d --force-recreate librechat
+npm run librechat:accounts -- --check admin@example.com ceo@example.com
 ```
 
-If `LIBRECHAT_ALLOW_REGISTRATION` was set in `.env`, remove it or set it to `false` before
-that final command. Verify that the new-user registration route is closed and the existing
-account can still sign in. Select the `iva` model under the `Iva` endpoint. `LIBRECHAT_PORT`
-and the loopback-only MongoDB port can be changed in `.env`.
+If there are other accounts already in MongoDB, inspect them and decide separately whether
+to retain or remove them; the script never deletes users. Recreate the LibreChat service
+after deploying this compose file, then verify browser sign-up is unavailable and both
+accounts can sign in. Open `http://127.0.0.1:3080` and select the `iva` model under the
+`Iva` endpoint. `LIBRECHAT_PORT` and the loopback-only MongoDB port can be changed in `.env`.
+
+`ADMIN` grants management rights inside LibreChat, including access to settings and other
+users' LibreChat resources. It does not make the CEO an operating-system administrator.
+Both browser accounts reach the same Iva vault; this is not tenant isolation.
 
 On a remote server, forward both the LibreChat port and Iva's port from the browser's
 computer. The notification bell loads its script and inbox directly from Iva's loopback
