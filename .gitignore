@@ -55,3 +55,9 @@ CLAUDE.md
 AGENTS.md
 docs/agents/
 .scratch/
+
+# Local pilot artifacts and database backups never belong in the public source tree.
+/ANALISE.MD
+/ceo-memory-*-results.tar.gz
+/webui.db.backup-*
+/summaries/

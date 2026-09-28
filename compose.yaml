@@ -9,6 +9,7 @@ services:
       PORT: ${OPEN_WEBUI_PORT:-3000}
       WEBUI_URL: http://127.0.0.1:${OPEN_WEBUI_PORT:-3000}
       WEBUI_SECRET_KEY: ${OPEN_WEBUI_SECRET_KEY:?Set OPEN_WEBUI_SECRET_KEY in .env}
+      ENABLE_SIGNUP: "${OPEN_WEBUI_ALLOW_SIGNUP:-False}"
       ENABLE_OLLAMA_API: "False"
       ENABLE_OPENAI_API: "True"
       OPENAI_API_BASE_URL: http://127.0.0.1:${IVA_PORT:-8723}/v1
@@ -69,8 +70,9 @@ services:
       OPEN_WEBUI_API_KEY: ${OPEN_WEBUI_API_KEY:?Set OPEN_WEBUI_API_KEY in .env}
       IVA_PORT: ${IVA_PORT:-8723}
       ALLOW_EMAIL_LOGIN: "true"
-      ALLOW_REGISTRATION: "true"
+      ALLOW_REGISTRATION: "${LIBRECHAT_ALLOW_REGISTRATION:-false}"
       ALLOW_SOCIAL_LOGIN: "false"
+      ALLOW_SOCIAL_REGISTRATION: "false"
       NO_INDEX: "true"
     volumes:
       - ./librechat.yaml:/app/librechat.yaml:ro

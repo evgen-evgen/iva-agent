@@ -20,8 +20,25 @@ Build and start LibreChat and its private MongoDB in another:
 docker compose --profile librechat up -d --build librechat
 ```
 
-Open `http://127.0.0.1:3080`, create the first account, and select the `iva` model under the
-`Iva` endpoint. `LIBRECHAT_PORT` and the loopback-only MongoDB port can be changed in `.env`.
+Email login stays enabled, but registration is disabled by default. Existing accounts and
+chats remain in the named MongoDB volume. If this is a fresh installation with no account,
+open registration only while creating the first account over the SSH tunnel:
+
+```bash
+LIBRECHAT_ALLOW_REGISTRATION=true docker compose --profile librechat up -d --force-recreate librechat
+```
+
+Open `http://127.0.0.1:3080`, create the account, then close registration by recreating
+LibreChat without the override:
+
+```bash
+docker compose --profile librechat up -d --force-recreate librechat
+```
+
+If `LIBRECHAT_ALLOW_REGISTRATION` was set in `.env`, remove it or set it to `false` before
+that final command. Verify that the new-user registration route is closed and the existing
+account can still sign in. Select the `iva` model under the `Iva` endpoint. `LIBRECHAT_PORT`
+and the loopback-only MongoDB port can be changed in `.env`.
 
 On a remote server, forward both the LibreChat port and Iva's port from the browser's
 computer. The notification bell loads its script and inbox directly from Iva's loopback
