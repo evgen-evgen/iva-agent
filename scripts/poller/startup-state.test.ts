@@ -151,7 +151,7 @@ void test("main is the only production caller and passes its held lease", async 
   assert.match(
     mainSource,
     /void main\(\)\.catch/u,
-    "the production entrypoint must use the immutable uid-global default",
+    "the production entrypoint must use the immutable bot-scoped default",
   );
 });
 

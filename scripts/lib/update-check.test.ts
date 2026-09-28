@@ -187,15 +187,15 @@ test("an explicitly configured feature channel does not drift to main", async ()
   assert.equal(info.remoteVersion, "1.2.3");
 });
 
-test("notification target prefers digest chat and falls back to the first trusted user", () => {
+test("notification target uses only the explicit outbound destination", () => {
   assert.equal(
     notificationChat({
-      TELEGRAM_DIGEST_CHAT_ID: "99",
+      TELEGRAM_NOTIFICATION_CHAT_ID: "99",
       TELEGRAM_ALLOWED_USER_IDS: "1,2",
     }),
     "99",
   );
-  assert.equal(notificationChat({ TELEGRAM_ALLOWED_USER_IDS: " 1, 2" }), "1");
+  assert.equal(notificationChat({ TELEGRAM_ALLOWED_USER_IDS: " 1, 2" }), "");
   assert.equal(notificationChat({}), "");
 });
 
@@ -230,7 +230,7 @@ test("daily check sends one offer per version and records only successful sends"
   const root = mkdtempSync(join(tmpdir(), "iva-daily-check-"));
   const env = {
     TELEGRAM_BOT_TOKEN: "token",
-    TELEGRAM_DIGEST_CHAT_ID: "42",
+    TELEGRAM_NOTIFICATION_CHAT_ID: "42",
     AGENT_LANGUAGE: "ru",
     ASSISTANT_DATA_DIR: "data",
   };
@@ -294,7 +294,7 @@ test("the daily notice says what is new, in the language of the notice", async (
     root,
     env: {
       TELEGRAM_BOT_TOKEN: "token",
-      TELEGRAM_DIGEST_CHAT_ID: "42",
+      TELEGRAM_NOTIFICATION_CHAT_ID: "42",
       AGENT_LANGUAGE: "ru",
       ASSISTANT_DATA_DIR: "data",
     },
@@ -338,7 +338,7 @@ test("the daily notice survives a README it cannot read", async () => {
       root,
       env: {
         TELEGRAM_BOT_TOKEN: "token",
-        TELEGRAM_DIGEST_CHAT_ID: "42",
+        TELEGRAM_NOTIFICATION_CHAT_ID: "42",
         ASSISTANT_DATA_DIR: "data",
       },
       inspectImpl: async () => ({
@@ -372,7 +372,10 @@ test("daily check is silent without config, without a release, or during an upda
     "not-configured",
   );
 
-  const env = { TELEGRAM_BOT_TOKEN: "token", TELEGRAM_ALLOWED_USER_IDS: "1" };
+  const env = {
+    TELEGRAM_BOT_TOKEN: "token",
+    TELEGRAM_NOTIFICATION_CHAT_ID: "1",
+  };
   const current = await runDailyUpdateCheck({
     root,
     env,
@@ -476,7 +479,10 @@ test("on the versioned layout the daily check reads the mirror and names the ins
   const result = await runDailyUpdateCheck({
     // The units run from `current`, which is where the check starts too.
     root: join(home, "current"),
-    env: { TELEGRAM_BOT_TOKEN: "token", TELEGRAM_ALLOWED_USER_IDS: "1" },
+    env: {
+      TELEGRAM_BOT_TOKEN: "token",
+      TELEGRAM_NOTIFICATION_CHAT_ID: "1",
+    },
     inspectImpl: async (options) => {
       asked.push(options);
       return { hasVersionUpdate: false };
@@ -494,7 +500,10 @@ test("on the versioned layout the daily check reads the mirror and names the ins
   const sent: UpdateOfferRequest[] = [];
   const notified = await runDailyUpdateCheck({
     root: join(home, "current"),
-    env: { TELEGRAM_BOT_TOKEN: "token", TELEGRAM_ALLOWED_USER_IDS: "1" },
+    env: {
+      TELEGRAM_BOT_TOKEN: "token",
+      TELEGRAM_NOTIFICATION_CHAT_ID: "1",
+    },
     inspectImpl: async () => ({
       hasVersionUpdate: true,
       localVersion: "0.3.15",
@@ -528,7 +537,7 @@ const result = await runDailyUpdateCheck({
   root: process.env.__ROOT,
   env: {
     TELEGRAM_BOT_TOKEN: "token",
-    TELEGRAM_DIGEST_CHAT_ID: "42",
+    TELEGRAM_NOTIFICATION_CHAT_ID: "42",
     ASSISTANT_DATA_DIR: process.env.ASSISTANT_DATA_DIR,
     AGENT_LANGUAGE: process.env.AGENT_LANGUAGE,
   },

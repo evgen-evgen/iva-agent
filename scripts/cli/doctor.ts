@@ -23,6 +23,7 @@ import {
   KEEP,
 } from "../lib/version-store.ts";
 import { hasEmbeddingSource } from "../lib/memory-mode.ts";
+import { telegramEnabled } from "#lib/feature-flags.ts";
 import type { createCliRuntime } from "./runtime.ts";
 import type { createCliSystemd } from "./systemd.ts";
 
@@ -134,11 +135,13 @@ export function createDoctorCommand(
         badN++;
       } else {
         // codex — доступ по OAuth-токену (data/codex-auth.json), у остальных — ключ в .env.
+        const telegramRequired = telegramEnabled(env)
+          ? ["TELEGRAM_BOT_TOKEN", "TELEGRAM_ALLOWED_USER_IDS"]
+          : [];
         const required = [
           ...providerEnvKeys(provider),
           "DEEPGRAM_API_KEY",
-          "TELEGRAM_BOT_TOKEN",
-          "TELEGRAM_ALLOWED_USER_IDS",
+          ...telegramRequired,
           "ASSISTANT_BEARER",
         ];
         const missing = required.filter((key) => !(env[key] || "").trim());

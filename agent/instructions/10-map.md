@@ -18,6 +18,8 @@ Creating a fact card (contact/project/decision/idea/note) — write it with the
 
 - `CORE.md` — who the user is, standing preferences, ≤3 active goals,
   pointers. ALREADY in context (the "CORE" block) — do not re-read it.
+- `NOW.md` + active tasks/projects/contacts/decisions — shared working state,
+  also already in context on every turn for both Telegram and web channels.
 - `MOC.md` — the topic index of the vault: topic hubs → cards. READ FIRST for
   "what do I know about X".
 - `summaries/daily/YYYY-MM-DD.md` — the day summary (topics + links). Take it

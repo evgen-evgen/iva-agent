@@ -9,12 +9,16 @@ import {
   ROUTE,
   ACCEPTANCE_ROUTE,
   SECRET,
-  ALLOWED,
   SETTLE_MS,
   sleep,
   log,
 } from "./config.ts";
 import { traceBridgeDelivery } from "#lib/trace.ts";
+import { diagnosticChat } from "../lib/notification-chat.ts";
+import {
+  createNotification,
+  setNotificationTelegramDelivery,
+} from "#lib/notification-store.ts";
 import { tg } from "./transport.ts";
 import { chatKey } from "./offset.ts";
 import type { TelegramQueueUpdate } from "../lib/telegram-queue.ts";
@@ -229,8 +233,7 @@ async function deliver(
 const deliverNotified = new Set();
 async function notifyDeliverProblem(kind: string, status: unknown) {
   if (deliverNotified.has(kind)) return;
-  const target = process.env.TELEGRAM_DIGEST_CHAT_ID || [...ALLOWED][0];
-  if (!target) return;
+  const target = diagnosticChat();
   const text =
     kind === "config"
       ? tr(
@@ -241,9 +244,36 @@ async function notifyDeliverProblem(kind: string, status: unknown) {
           `⚠️ Iva bridge retained a Telegram update after repeated HTTP ${String(status)} rejections. It will retry from durable storage. Check the logs: journalctl --user -u iva-telegram-poll`,
           `⚠️ Мост Iva сохранил Telegram-апдейт после повторных отказов HTTP ${String(status)}. Доставка повторится из дюрабельного хранилища. Проверь логи: journalctl --user -u iva-telegram-poll`,
         );
+  const notification = await createNotification({
+    body: text,
+    kind: "alert",
+    source: "telegram-poller",
+    title: "Сбой Telegram-моста",
+  });
+  if (!target) {
+    await setNotificationTelegramDelivery(notification.id, "skipped");
+    deliverNotified.add(kind);
+    return;
+  }
   try {
-    const res = await tg("sendMessage", { chat_id: target, text });
-    if ((res as { ok?: unknown } | null)?.ok) deliverNotified.add(kind);
+    const res = (await tg("sendMessage", { chat_id: target, text })) as {
+      ok?: unknown;
+      description?: unknown;
+      error_code?: unknown;
+    };
+    await setNotificationTelegramDelivery(
+      notification.id,
+      res.ok ? "sent" : "failed",
+      res.ok
+        ? undefined
+        : typeof res.description === "string"
+          ? res.description
+          : typeof res.error_code === "number" ||
+              typeof res.error_code === "string"
+            ? String(res.error_code)
+            : "Telegram rejected alert",
+    );
+    if (res.ok) deliverNotified.add(kind);
   } catch (e) {
     log("deliver notification failed:", errorMessage(e));
   }

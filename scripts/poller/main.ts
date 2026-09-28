@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 
+import { telegramEnabled } from "#lib/feature-flags.ts";
 import { COLLECT_QUIET_MS } from "../lib/telegram-collect.ts";
 import { alreadyDelivered } from "../lib/offset-store.ts";
 import {
@@ -96,9 +97,13 @@ const configuredCollectQuietMs =
 export async function main({
   acquireProcessLockImpl = acquireTelegramProcessLock,
 }: {
-  /** Test seam; the production entrypoint always uses the uid-global lease. */
+  /** Test seam; the production entrypoint always uses the bot-scoped lease. */
   acquireProcessLockImpl?: typeof acquireTelegramProcessLock;
 } = {}) {
+  if (!telegramEnabled()) {
+    log("Telegram disabled by TELEGRAM_ENABLED=false; poller stopped");
+    return;
+  }
   if (!TOKEN)
     throw new Error("no TELEGRAM_BOT_TOKEN in .env — nothing to poll");
   if (!SECRET)

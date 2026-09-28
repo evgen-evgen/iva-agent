@@ -1,12 +1,16 @@
+import { telegramEnabled } from "#lib/feature-flags.ts";
+
 export function notificationChat(
   env: Record<string, string | undefined> = process.env,
 ): string {
-  const digest = String(env.TELEGRAM_DIGEST_CHAT_ID ?? "").trim();
-  if (digest) return digest;
-  return (
-    String(env.TELEGRAM_ALLOWED_USER_IDS ?? "")
-      .split(/[,\s]+/)
-      .map((id) => id.trim())
-      .find(Boolean) ?? ""
-  );
+  if (!telegramEnabled(env)) return "";
+  return String(env.TELEGRAM_NOTIFICATION_CHAT_ID ?? "").trim();
+}
+
+/** Operational failures go to a separate admin channel, never to the user inbox. */
+export function diagnosticChat(
+  env: Record<string, string | undefined> = process.env,
+): string {
+  if (!telegramEnabled(env)) return "";
+  return String(env.TELEGRAM_DIAGNOSTIC_CHAT_ID ?? "").trim();
 }

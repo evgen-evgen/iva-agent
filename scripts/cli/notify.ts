@@ -18,6 +18,16 @@ type SendTelegramHtml =
 export type NotifyDependencies = {
   readonly readEnv?: typeof readEnvFresh;
   readonly send?: SendTelegramHtml;
+  readonly recordNotification?: (input: {
+    readonly body: string;
+    readonly kind: "notice";
+    readonly source: string;
+  }) => Promise<{ readonly id: string }>;
+  readonly setTelegramDelivery?: (
+    id: string,
+    status: "failed" | "sent",
+    error?: string,
+  ) => Promise<void>;
 };
 
 /** Create the notify command without reading .env or touching the network at import time. */
@@ -38,13 +48,30 @@ export function createNotifyCommand(
     const chat = notificationChat(env);
     if (!chat)
       throw new Error(
-        "No target chat — set TELEGRAM_DIGEST_CHAT_ID or TELEGRAM_ALLOWED_USER_IDS in .env",
+        "No target chat — set TELEGRAM_NOTIFICATION_CHAT_ID in .env",
       );
     const send =
       dependencies.send ??
       (await import("../lib/telegram-send.ts")).sendTelegramHtml;
+    const notificationModule =
+      dependencies.recordNotification && dependencies.setTelegramDelivery
+        ? undefined
+        : await import("#lib/notification-store.ts");
+    const notification = await (
+      dependencies.recordNotification ?? notificationModule!.createNotification
+    )({ body: text, kind: "notice", source: "iva-notify" });
     const result = await send(token, chat, text);
+    const setDelivery =
+      dependencies.setTelegramDelivery ??
+      notificationModule!.setNotificationTelegramDelivery;
+    await setDelivery(
+      notification.id,
+      result.ok ? "sent" : "failed",
+      result.ok ? undefined : result.error,
+    ).catch((error: unknown) =>
+      console.error("Notification delivery status was not saved:", error),
+    );
     if (!result.ok) throw new Error(`Telegram send failed: ${result.error}`);
-    ok("Sent to Telegram");
+    ok("Saved and sent to Telegram");
   };
 }
