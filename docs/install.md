@@ -50,7 +50,7 @@ Five steps. Each key comes with a direct link to where it lives, and each is val
 2. **Voice, search, hybrid memory.** Deepgram key (free starter credit); recognition language `multi` auto-detects ru/uz/en. The same step picks a web-search provider — Tavily, Exa, Parallel or Brave; Enter skips and search stays off — and offers optional hybrid memory with an embedding key.
 3. **Telegram bot.** Paste the token from @BotFather; the wizard validates it via `getMe` and detects the bot's username itself.
 4. **Access.** Send your new bot any message — "hi" works. The wizard reads `getUpdates`, shows who wrote, and you pick yourself. Iva answers only these IDs; an empty list means it answers nobody.
-5. **Timezone, vault, port.** IANA timezone so nightly jobs run on your clock, the vault directory, and the port — default 8723, probed for conflicts.
+5. **Timezone, memory profile, vault, port.** Choose the personal or CEO schema profile (CEO optionally records your owner name), then the IANA timezone, vault directory, and port — default 8723, probed for conflicts. For an existing vault, selecting CEO in `iva config` applies the additive migration before restart; `npm run init-vault` can also apply it manually.
 
 ## What install.sh does
 

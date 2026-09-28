@@ -88,14 +88,6 @@ if (isEmpty(VAULT)) {
   );
 }
 
-if (MEMORY_PROFILE === "ceo") {
-  const migration = applyCeoProfile(VAULT);
-  console.log(
-    `init-vault: CEO profile ${migration.changed ? "applied" : "already present"} → ${VAULT} ` +
-      `(${migration.directories.map((directory) => resolve(directory)).join(", ")})`,
-  );
-}
-
 // The live vault is its own git repo (backup + Obsidian). doctor.ts then commits/pushes.
 if (!existsSync(resolve(VAULT, ".git"))) {
   execFileSync("git", ["-C", VAULT, "init", "-q"]);

@@ -171,7 +171,7 @@ export function operationalContextMarkdown(
     return `- ${task.text}${meta ? ` (${meta})` : ""}`;
   });
   const projects = cards(vault, "projects").filter(
-    (card) => ["active", "draft", "paused", "blocked"].includes(card.status),
+    (card) => card.status === "active" || card.status === "draft" || card.status === "paused",
   );
   const people = cards(vault, "contacts").filter((card) => card.status === "active");
   const decisions = cards(vault, "decisions")

@@ -1121,7 +1121,9 @@ case "$VAULT_DIR_REL" in
   *)  VAULT_PATH="$PROJECT_DIR/$VAULT_DIR_REL" ;;
 esac
 step "$(t "Preparing the live vault from the template…" "Готовлю live-vault из шаблона…")"
-ASSISTANT_VAULT_DIR="$VAULT_DIR_REL" node scripts/init-vault.mjs || warn "$(t "init-vault didn't run — check the vault manually" "init-vault не отработал — проверьте vault вручную")"
+MEMORY_PROFILE="$(grep -E '^IVA_MEMORY_PROFILE=' .env 2>/dev/null | tail -n1 | cut -d= -f2- | tr -d '"' || true)"
+CEO_NAME="$(grep -E '^IVA_CEO_NAME=' .env 2>/dev/null | tail -n1 | cut -d= -f2- | tr -d '"' || true)"
+ASSISTANT_VAULT_DIR="$VAULT_DIR_REL" IVA_MEMORY_PROFILE="${MEMORY_PROFILE:-personal}" IVA_CEO_NAME="$CEO_NAME" node scripts/init-vault.mjs || warn "$(t "init-vault didn't run — check the vault manually" "init-vault не отработал — проверьте vault вручную")"
 
 # ─────────────────────────────────────────────────────────────────────────
 # 8.5. The `iva` command in ~/.local/bin (update/config/doctor/uninstall/...).

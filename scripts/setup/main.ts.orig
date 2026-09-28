@@ -1206,18 +1206,6 @@ async function main() {
     `  ${t("Vault directory (memory + git backup)", "Каталог vault (память + git-бэкап)")}`,
     out.ASSISTANT_VAULT_DIR || "vault",
   );
-  const profileAnswer = await ask(
-    `  ${t("Memory profile (1 = personal, 2 = CEO)", "Профиль памяти (1 = личный, 2 = CEO)")}`,
-    out.IVA_MEMORY_PROFILE === "ceo" ? "2" : "1",
-  );
-  out.IVA_MEMORY_PROFILE =
-    /^(2|ceo)$/iu.test(profileAnswer.trim()) ? "ceo" : "personal";
-  if (out.IVA_MEMORY_PROFILE === "ceo") {
-    out.IVA_CEO_NAME = await ask(
-      `  ${t("Your name as used in commitment owners (optional)", "Ваше имя в карточках обязательств (необязательно)")}`,
-      out.IVA_CEO_NAME || "",
-    );
-  }
   out.ASSISTANT_DATA_DIR = out.ASSISTANT_DATA_DIR || "data";
   // Off-the-beaten-path port: 3000/8000/8080 are often taken on a typical VPS (docker etc.). The server
   // listens on IVA_PORT and clients (poll bridge, digest, rollups) reach it via ASSISTANT_HOST. We check

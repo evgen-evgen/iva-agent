@@ -49,12 +49,6 @@ test("builds one bounded working context from tasks and memory cards", () => {
     assert.match(context, /Альфа \(active\): Описание проекта/u);
     assert.match(context, /Дима \(active\): Ответственный/u);
     assert.match(context, /Каналы \(active\): Оставить два канала/u);
-    const overdueIndex = context.indexOf("Evgen: Сдать отчёт — срок 2026-09-27");
-    const upcomingIndex = context.indexOf("Партнёр: Проверить договор — срок 2026-09-29");
-    assert.ok(overdueIndex >= 0 && overdueIndex < upcomingIndex);
-    assert.match(context, /ПРОСРОЧЕНО; Evgen: Сдать отчёт/u);
-    assert.match(context, /Обязательства CEO[\s\S]*Evgen: Сдать отчёт/u);
-    assert.match(context, /Блокеры[\s\S]*Ждём решение клиента/u);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

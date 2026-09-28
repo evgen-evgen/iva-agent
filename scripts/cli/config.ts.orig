@@ -125,23 +125,6 @@ export function createConfigCommand(
         throw new Error("candidate configuration has an invalid IVA_PORT");
       }
 
-      if (nextEnv.IVA_MEMORY_PROFILE === "ceo") {
-        // Additive and idempotent: run before the service transaction so the CEO tools never
-        // start against a schema that still disables commitments. A failed health check can
-        // leave the schema as a harmless superset; personal cards and fields are never removed.
-        const migrated = run(NODE, ["scripts/init-vault.mjs"], {
-          env: {
-            ...childEnv,
-            IVA_MEMORY_PROFILE: "ceo",
-            IVA_CEO_NAME: nextEnv.IVA_CEO_NAME || "",
-            ASSISTANT_VAULT_DIR: nextEnv.ASSISTANT_VAULT_DIR || "vault",
-            AGENT_LANGUAGE: nextEnv.AGENT_LANGUAGE || "ru",
-          },
-        });
-        if (migrated.status !== 0)
-          throw new Error("Could not migrate the vault to the CEO memory profile");
-      }
-
       await applyTransaction(
         {
           envPath: ENV_PATH,

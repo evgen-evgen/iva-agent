@@ -40,7 +40,7 @@ const session = client.session();
 // is delivered by the code below, so a rich message here would be the second message.
 // The red line in agent/instructions.md exempts exactly these two scheduled turns.
 const response = await session.send(
-  "Load the morning-digest skill and build the morning digest for my tasks. " +
+  "Load the morning-digest skill and build the morning digest for my tasks, open commitments, and blockers. " +
     `Return the digest ${writtenInLanguage(tr)}. ` +
     "Return the digest as the final text of this turn. Do not send it anywhere yourself: " +
     "no rich messages, no digest chat, no Telegram tools. " +
