@@ -53,13 +53,34 @@ Build and restart Iva so the authored channel is present, then start the UI:
 ```bash
 npm run build
 npm run start:ui
-docker compose up -d
+docker compose --profile open-webui up -d
 ```
+
+For a new Open WebUI database, use the first-admin command below on the **initial**
+start instead of starting with sign-up closed. Open WebUI persists its signup setting,
+so a later environment override may not change a saved value.
 
 `npm run start:ui` loads `.env`, maps `IVA_PORT` to Eve's runtime `PORT`, and binds only to
 `127.0.0.1`. Keep that terminal open; stop it with Ctrl+C.
 
-Open `http://127.0.0.1:3000`, create the first (admin) account, and select the `iva` model.
+Sign-up is disabled by default. Existing accounts continue to work. On a new installation, allow sign-up on the initial start only while creating
+the first admin account:
+
+```bash
+OPEN_WEBUI_ALLOW_SIGNUP=True docker compose --profile open-webui up -d --force-recreate open-webui
+```
+
+Open `http://127.0.0.1:3000` and create the admin account; then recreate the service
+without the override and select the `iva` model:
+
+```bash
+docker compose --profile open-webui up -d --force-recreate open-webui
+```
+
+If `OPEN_WEBUI_ALLOW_SIGNUP` was set in `.env`, remove it or set it to `False` first.
+Open WebUI persists authentication settings in its database: for an existing installation,
+check **Admin Panel → Settings → Authentication** and turn off sign-up there if it is
+still enabled. Verify an existing account can sign in and new accounts cannot register.
 On a remote VPS, keep the service private and use an SSH tunnel:
 
 ```bash

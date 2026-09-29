@@ -58,3 +58,9 @@ docs/agents/
 
 # Editor merge backups
 *.orig
+
+# Local pilot artifacts and database backups never belong in the public source tree.
+/ANALISE.MD
+/ceo-memory-*-results.tar.gz
+/webui.db.backup-*
+/summaries/

@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import { listNotifications } from "#lib/notification-store.ts";
 import { dispatchCli } from "./main.ts";
 import { createNotifyCommand, type NotifyDependencies } from "./notify.ts";
 import { createCliRuntime } from "./runtime.ts";
@@ -140,4 +144,60 @@ void test("a refused send reports the Telegram error and exits one", async () =>
     "exit:1",
   ]);
   assert.deepEqual(notify.messages, []);
+});
+
+void test("one notice persists for LibreChat and records Telegram delivery", async () => {
+  const previous = process.env.ASSISTANT_DATA_DIR;
+  const directory = await mkdtemp(join(tmpdir(), "iva-notify-delivery-"));
+  process.env.ASSISTANT_DATA_DIR = directory;
+  try {
+    const sent: unknown[] = [];
+    const runtime = createCliRuntime(ROOT);
+    const command = createNotifyCommand(runtime, {
+      readEnv: () =>
+        Promise.resolve({
+          TELEGRAM_BOT_TOKEN: "test-token",
+          TELEGRAM_NOTIFICATION_CHAT_ID: "123",
+        }),
+      send: (_token, _chat, body) => {
+        sent.push(body);
+        return Promise.resolve({ ok: true, fellBack: false, error: "" });
+      },
+    });
+
+    await command(["Проверить", "отчёт"]);
+
+    assert.deepEqual(sent, ["Проверить отчёт"]);
+    const [notice] = await listNotifications();
+    assert.equal(notice?.body, "Проверить отчёт");
+    assert.equal(notice?.source, "iva-notify");
+    assert.equal(notice?.telegram?.status, "sent");
+
+    const failed = createNotifyCommand(runtime, {
+      readEnv: () =>
+        Promise.resolve({
+          TELEGRAM_BOT_TOKEN: "test-token",
+          TELEGRAM_NOTIFICATION_CHAT_ID: "123",
+        }),
+      send: () =>
+        Promise.resolve({
+          ok: false,
+          fellBack: false,
+          error: "simulated Telegram outage",
+        }),
+    });
+    await assert.rejects(
+      failed(["Второе", "уведомление"]),
+      /Telegram send failed/u,
+    );
+    const [second, first] = await listNotifications();
+    assert.equal(second?.body, "Второе уведомление");
+    assert.equal(second?.telegram?.status, "failed");
+    assert.equal(first?.id, notice?.id);
+    assert.equal(first?.telegram?.status, "sent");
+  } finally {
+    if (previous === undefined) delete process.env.ASSISTANT_DATA_DIR;
+    else process.env.ASSISTANT_DATA_DIR = previous;
+    await rm(directory, { recursive: true, force: true });
+  }
 });
