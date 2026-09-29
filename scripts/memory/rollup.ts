@@ -32,7 +32,7 @@ import {
 } from "../lib/notice-policy.ts";
 import { resolveDataDir } from "../lib/data-dir.ts";
 import { resolveTimeZone } from "../lib/timezone.ts";
-import { diagnosticChat, notificationChat } from "../lib/notification-chat.ts";
+import { diagnosticChat } from "../lib/notification-chat.ts";
 import { readCore } from "./read-core.ts";
 import {
   cancelTurnAndConfirmQuietly,
@@ -73,7 +73,6 @@ const PORT = process.env.IVA_PORT ?? "8723";
 const HOST = process.env.ASSISTANT_HOST ?? `http://127.0.0.1:${PORT}`;
 const BEARER = process.env.ASSISTANT_BEARER; // needed if the prod eve channel requires auth
 const BOT = process.env.TELEGRAM_BOT_TOKEN;
-const NOTIFICATION_CHAT = notificationChat();
 const DIAGNOSTIC_CHAT = diagnosticChat();
 // Absolute, like the instructions above: the prompt hands these paths to the model as
 // read_file/write_file targets, and read_file resolves a RELATIVE path against the vault
@@ -668,17 +667,17 @@ if (REPORTS_TO_TELEGRAM[period]) {
   // live in the shared seam. No token or chat means no seam — and the policy still decides
   // the one-time notice, so a chat configured later cannot revive a question already closed.
   const send =
-    BOT && NOTIFICATION_CHAT
+    BOT && DIAGNOSTIC_CHAT
       ? {
           // Ночной ход зовётся своим именем в журнале хода (ADR-0010): без источника
           // вьюер прочитал бы rollup как разговор в Telegram. Сессия — сквозная,
           // по ней читатель сшивает весь ночной ход.
           report: (text: string) =>
-            sendTelegramHtml(BOT, NOTIFICATION_CHAT, text, {
+            sendTelegramHtml(BOT, DIAGNOSTIC_CHAT, text, {
               trace: { session: session.state.sessionId, source: "rollup" },
             }),
           notice: (text: string) =>
-            sendTelegramHtml(BOT, NOTIFICATION_CHAT, text, {
+            sendTelegramHtml(BOT, DIAGNOSTIC_CHAT, text, {
               trace: { session: session.state.sessionId, source: "rollup" },
             }),
         }
@@ -687,7 +686,7 @@ if (REPORTS_TO_TELEGRAM[period]) {
     if (notification)
       await setNotificationTelegramDelivery(notification.id, "skipped");
     console.error(
-      `rollup ${period}: no TELEGRAM_BOT_TOKEN/TELEGRAM_NOTIFICATION_CHAT_ID — report saved for LibreChat only`,
+      `rollup ${period}: no TELEGRAM_BOT_TOKEN/TELEGRAM_DIAGNOSTIC_CHAT_ID — report saved for LibreChat only`,
     );
     process.exit(0);
   }

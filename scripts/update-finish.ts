@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { CATALOG, catalogProvider } from "./lib/model-catalog.ts";
-import { notificationChat } from "./lib/notification-chat.ts";
+import { diagnosticChat } from "./lib/notification-chat.ts";
 import {
   alertOnce,
   noticeTranslator,
@@ -431,7 +431,7 @@ export async function alertOwnerAboutPlugins(
 ): Promise<void> {
   notify(pluginsOffNotice(failures));
   const token = String(layout.values.TELEGRAM_BOT_TOKEN ?? "").trim();
-  const chat = notificationChat(layout.values);
+  const chat = diagnosticChat(layout.values);
   const deliver = send ?? (token && chat ? sendToChat(token, chat) : null);
   if (!deliver) return; // Nowhere to say it; the output above is all there is.
   const tr = await noticeTranslator(layout.values);

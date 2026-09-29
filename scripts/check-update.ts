@@ -8,7 +8,7 @@ import {
   gitAt,
   inspectUpstream,
   markVersionNotified,
-  notificationChat,
+  diagnosticChat,
   readNotifiedVersion,
   sendUpdateOffer,
   updateOffer,
@@ -101,7 +101,7 @@ export async function runDailyUpdateCheck({
   gitImpl = gitAt,
 }: DailyUpdateOptions = {}) {
   const token = String(env.TELEGRAM_BOT_TOKEN ?? "").trim();
-  const chatId = notificationChat(env);
+  const chatId = diagnosticChat(env);
   if (!token || !chatId) return { status: "not-configured" as const };
 
   const storage = dataDir(root, env);

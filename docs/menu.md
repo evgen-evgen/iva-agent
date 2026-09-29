@@ -62,7 +62,7 @@ Everything Iva sends **on her own** — with no message from you — is a Notice
 
 The **🔔 Notices** screen switches the two Reports — _Memory reports_ (nightly, 04:00 and Mon 04:15) and _Morning digest_ (08:00). Both are **off by default**, so a fresh installation says nothing in the morning; the vault is still written and `/digest` still works by hand. A tap writes `data/settings.json`: the report switch is read at the end of each nightly run, the digest switch when its schedule fires — no restart, and a switch flipped tonight applies tonight. Both scheduled turns hand their text to the code that delivers it, so a report arrives as exactly one message ([ADR-0007](adr/0007-notices-are-opt-in.md)).
 
-Alerts — problems and new versions — cannot be switched off, and the screen says so. The price they pay for that: every Alert names what broke, what it costs and the exact command to fix it, and it repeats at most once a week for the same problem — sooner only if the problem changed or came back after a fix. The reasoning: [ADR-0007](adr/0007-notices-are-opt-in.md).
+Alerts — problems and new versions — cannot be switched off, and the screen says so. Health and memory reports, update offers and operational failures go to the separate system chat configured by `TELEGRAM_DIAGNOSTIC_CHAT_ID`; reminders and the morning digest stay in `TELEGRAM_NOTIFICATION_CHAT_ID`. Every Alert names what broke, what it costs and the exact command to fix it, and repeats at most once a week for the same problem — sooner only if the problem changed or came back after a fix. The reasoning: [ADR-0007](adr/0007-notices-are-opt-in.md).
 
 ## API keys and secrets
 

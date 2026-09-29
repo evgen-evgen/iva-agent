@@ -80,8 +80,9 @@ to `data/notifications.json`; the same event is then delivered to Telegram when 
 configured. This keeps Telegram and LibreChat on one task system instead of creating a
 second set of LibreChat-native jobs.
 
-User reminders and reports go to `TELEGRAM_NOTIFICATION_CHAT_ID`; operational failures go
-to the separate `TELEGRAM_DIAGNOSTIC_CHAT_ID`. Both are also written to LibreChat's inbox.
+User reminders and morning digests go to `TELEGRAM_NOTIFICATION_CHAT_ID`. Health and memory
+reports, update offers, and operational failures go to the separate
+`TELEGRAM_DIAGNOSTIC_CHAT_ID`. Both are also written to LibreChat inbox.
 
 For this checkout, run CLI delivery commands as `npm run iva -- notify "text"` or
 `npm run iva -- remind "text"`. The npm command loads this checkout's `.env`; do not use a

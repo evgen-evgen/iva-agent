@@ -45,11 +45,11 @@ test("what leaves the chat is decided by the policy, not by the script", () => {
   // не решает. Сама отправка остаётся тем же одним швом.
   assert.match(
     block,
-    /report: \(text: string\) =>\s+sendTelegramHtml\(BOT, NOTIFICATION_CHAT, text, \{\s+trace: \{ session: session\.state\.sessionId, source: "rollup" \},/u,
+    /report: \(text: string\) =>\s+sendTelegramHtml\(BOT, DIAGNOSTIC_CHAT, text, \{\s+trace: \{ session: session\.state\.sessionId, source: "rollup" \},/u,
   );
   assert.match(
     block,
-    /notice: \(text: string\) =>\s+sendTelegramHtml\(BOT, NOTIFICATION_CHAT, text, \{\s+trace: \{ session: session\.state\.sessionId, source: "rollup" \},/u,
+    /notice: \(text: string\) =>\s+sendTelegramHtml\(BOT, DIAGNOSTIC_CHAT, text, \{\s+trace: \{ session: session\.state\.sessionId, source: "rollup" \},/u,
   );
   // Чат не настроен — решение о Notice всё равно принимается: send просто null.
   assert.match(block, /: null;/u);

@@ -7,7 +7,7 @@ export function notificationChat(
   return String(env.TELEGRAM_NOTIFICATION_CHAT_ID ?? "").trim();
 }
 
-/** Operational failures go to a separate admin channel, never to the user inbox. */
+/** System health, maintenance and update notices go to a separate admin chat. */
 export function diagnosticChat(
   env: Record<string, string | undefined> = process.env,
 ): string {

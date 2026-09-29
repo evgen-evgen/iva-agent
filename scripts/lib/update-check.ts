@@ -10,10 +10,10 @@ import {
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { notificationChat } from "./notification-chat.ts";
+import { diagnosticChat, notificationChat } from "./notification-chat.ts";
 import { resolveUpdateTarget, type GitResult } from "./update-channel.ts";
 
-export { notificationChat };
+export { diagnosticChat, notificationChat };
 
 export type GitCommand = (
   root: string,

@@ -30,7 +30,7 @@ After upgrading a legacy group that has not recorded its Eve token yet, send `/n
 
 `/update` compares your install with the upstream repo. If a newer version exists, the same message gets **⬆️ Update** and **Later** buttons. After confirmation, that one message is edited through preservation, fetch, build and the final result — no phase messages are left behind. The active phase uses a small animated Telegram loader when the bot can send custom emoji and falls back to a simple `◇` otherwise. Build logs, diffs and commit IDs stay on the server. The detached updater survives the bridge restart. Nothing happens until you tap.
 
-Independently, `iva-update-check.timer` checks upstream every day at 10:00 local time. It calls no model and says nothing unless a higher stable version exists. Each version is offered once in `TELEGRAM_NOTIFICATION_CHAT_ID` with the same buttons; **Later** closes that offer, while manual `/update` always remains available.
+Independently, `iva-update-check.timer` checks upstream every day at 10:00 local time. It calls no model and says nothing unless a higher stable version exists. Each version is offered once in the system chat configured by `TELEGRAM_DIAGNOSTIC_CHAT_ID` with the same buttons; **Later** closes that offer, while manual `/update` always remains available.
 
 ### /usage variants
 
