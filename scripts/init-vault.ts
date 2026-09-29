@@ -19,13 +19,16 @@ import { applyCeoProfile } from "./ceo-profile.ts";
 
 const VAULT: string = resolve(process.env.ASSISTANT_VAULT_DIR ?? "vault");
 const TEMPLATE: string = resolve("vault-template");
-const MEMORY_PROFILE = (process.env.IVA_MEMORY_PROFILE ?? "personal").trim().toLowerCase();
+const MEMORY_PROFILE = (process.env.IVA_MEMORY_PROFILE ?? "personal")
+  .trim()
+  .toLowerCase();
 
 if (MEMORY_PROFILE !== "personal" && MEMORY_PROFILE !== "ceo") {
-  console.error(`init-vault: unknown IVA_MEMORY_PROFILE=${MEMORY_PROFILE}; expected personal or ceo`);
+  console.error(
+    `init-vault: unknown IVA_MEMORY_PROFILE=${MEMORY_PROFILE}; expected personal or ceo`,
+  );
   process.exit(1);
 }
-
 
 if (!existsSync(TEMPLATE)) {
   console.error(

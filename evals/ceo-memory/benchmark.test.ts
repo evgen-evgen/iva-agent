@@ -123,11 +123,17 @@ test("benchmark CLI parses explicit modes and non-model preparation", () => {
 test("schema overlay merges maps without dropping stock card types", () => {
   const merged = deepMerge(
     {
-      node_types: { contact: { status: ["active"] } },
+      node_types: {
+        contact: { status: ["active"] },
+        project: { status: ["active", "done"] },
+      },
       card_type_dirs: { contact: "contacts" },
     },
     {
-      node_types: { commitment: { status: ["open", "done"] } },
+      node_types: {
+        commitment: { status: ["open", "done"] },
+        project: { status: ["blocked"] },
+      },
       card_type_dirs: { commitment: "commitments" },
     },
   );
@@ -137,8 +143,13 @@ test("schema overlay merges maps without dropping stock card types", () => {
   });
   assert.deepEqual(Object.keys(merged.node_types as object), [
     "contact",
+    "project",
     "commitment",
   ]);
+  assert.deepEqual(
+    (merged.node_types as { project: { status: string[] } }).project.status,
+    ["active", "done", "blocked"],
+  );
 });
 
 test("Codex auth can come from the live Iva data dir without sharing eval state", () => {

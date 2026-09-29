@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -156,7 +162,9 @@ void test("init-vault repairs only missing structure in a non-empty vault", asyn
 
 void test("CEO profile is enabled on a clean production vault", async (t) => {
   const root = await sandbox(t);
-  const sourceTemplate = fileURLToPath(new URL("../vault-template/", import.meta.url));
+  const sourceTemplate = fileURLToPath(
+    new URL("../vault-template/", import.meta.url),
+  );
   cpSync(sourceTemplate, join(root, "vault-template"), { recursive: true });
 
   const result = runInit(root, {
@@ -166,7 +174,9 @@ void test("CEO profile is enabled on a clean production vault", async (t) => {
     IVA_CEO_NAME: "Evgen",
   });
   const vault = join(root, "live-vault");
-  const schema = JSON.parse(readFileSync(join(vault, "schema.json"), "utf8")) as {
+  const schema = JSON.parse(
+    readFileSync(join(vault, "schema.json"), "utf8"),
+  ) as {
     node_types: Record<string, unknown>;
     card_type_dirs: Record<string, unknown>;
   };
@@ -175,6 +185,11 @@ void test("CEO profile is enabled on a clean production vault", async (t) => {
   assert.match(result.stdout, /CEO profile applied/u);
   assert.ok(schema.node_types.commitment);
   assert.ok(schema.node_types.meeting);
+  assert.ok(
+    (schema.node_types.project as { status: string[] }).status.includes(
+      "blocked",
+    ),
+  );
   assert.equal(schema.card_type_dirs.commitment, "commitments");
   assert.equal(schema.card_type_dirs.meeting, "meetings");
   assert.equal(existsSync(join(vault, "cards", "commitments")), true);
@@ -183,7 +198,9 @@ void test("CEO profile is enabled on a clean production vault", async (t) => {
 
 void test("CEO profile migrates an existing vault additively and idempotently", async (t) => {
   const root = await sandbox(t);
-  const sourceTemplate = fileURLToPath(new URL("../vault-template/", import.meta.url));
+  const sourceTemplate = fileURLToPath(
+    new URL("../vault-template/", import.meta.url),
+  );
   cpSync(sourceTemplate, join(root, "vault-template"), { recursive: true });
   const vault = join(root, "live-vault");
   mkdirSync(join(vault, "cards"), { recursive: true });
@@ -202,7 +219,9 @@ void test("CEO profile migrates an existing vault additively and idempotently", 
   const first = runInit(root, env);
   const afterFirst = readFileSync(join(vault, "schema.json"), "utf8");
   const second = runInit(root, env);
-  const migrated = JSON.parse(readFileSync(join(vault, "schema.json"), "utf8")) as {
+  const migrated = JSON.parse(
+    readFileSync(join(vault, "schema.json"), "utf8"),
+  ) as {
     customer_extension: { keep: boolean };
     node_types: Record<string, unknown>;
   };
@@ -215,7 +234,10 @@ void test("CEO profile migrates an existing vault additively and idempotently", 
   assert.equal(migrated.customer_extension.keep, true);
   assert.ok(migrated.node_types.commitment);
   assert.ok(migrated.node_types.meeting);
-  assert.equal(readFileSync(join(vault, "cards", "personal.md"), "utf8"), "private card\n");
+  assert.equal(
+    readFileSync(join(vault, "cards", "personal.md"), "utf8"),
+    "private card\n",
+  );
   assert.equal(existsSync(join(vault, "cards", "commitments")), true);
   assert.equal(existsSync(join(vault, "cards", "meetings")), true);
 });

@@ -55,3 +55,6 @@ CLAUDE.md
 AGENTS.md
 docs/agents/
 .scratch/
+
+# Editor merge backups
+*.orig

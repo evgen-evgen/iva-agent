@@ -1,6 +1,11 @@
 {
   "_comment": "Production CEO memory profile. Keep this contract aligned with evals/ceo-memory/v1/schema-ceo-extension.json.",
   "node_types": {
+    "project": {
+      "description": "Ongoing project or initiative with deliverables",
+      "required": ["description", "tags", "status"],
+      "status": ["blocked"]
+    },
     "meeting": {
       "description": "A scheduled or completed business conversation with participants, outcomes, and source context",
       "required": ["description", "tags", "status"],
@@ -39,6 +44,7 @@
   },
   "status_order": {
     "open": 0,
+    "blocked": 1,
     "scheduled": 1,
     "completed": 7,
     "done": 7,

@@ -501,6 +501,7 @@ test("the setup wizard writes grep without leaking host secrets", async (t) => {
       "", // Paste the Bot token -> keep fixture tg
       "", // Timezone (IANA, e.g. Asia/Almaty, Asia/Tashkent, Europe/Berlin) -> default (Asia/Almaty)
       "", // Vault directory (memory + git backup) -> default (vault)
+      "", // Memory profile -> default (personal)
       "", // Local eve-server port -> default (fixture IVA_PORT)
     ],
   );

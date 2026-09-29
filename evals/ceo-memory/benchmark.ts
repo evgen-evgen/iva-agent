@@ -238,7 +238,11 @@ export function deepMerge(
     merged[key] =
       isRecord(existing) && isRecord(value)
         ? deepMerge(existing, value)
-        : structuredClone(value);
+        : (key === "status" || key === "required") &&
+            Array.isArray(existing) &&
+            Array.isArray(value)
+          ? [...new Set([...(existing as unknown[]), ...(value as unknown[])])]
+          : structuredClone(value);
   }
   return merged;
 }

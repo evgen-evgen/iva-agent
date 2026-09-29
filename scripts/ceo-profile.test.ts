@@ -1,22 +1,39 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtempSync } from "node:fs";
 import test from "node:test";
 import { applyCeoProfile } from "./ceo-profile.ts";
 
-test("CEO profile stays aligned with the benchmark schema overlay", () => {
+void test("CEO profile stays aligned with the benchmark schema overlay", () => {
   const production = JSON.parse(
-    readFileSync(new URL("../vault-profiles/ceo/schema-extension.json", import.meta.url), "utf8"),
-  );
+    readFileSync(
+      new URL("../vault-profiles/ceo/schema-extension.json", import.meta.url),
+      "utf8",
+    ),
+  ) as Record<string, unknown>;
   const benchmark = JSON.parse(
-    readFileSync(new URL("../evals/ceo-memory/v1/schema-ceo-extension.json", import.meta.url), "utf8"),
-  );
+    readFileSync(
+      new URL(
+        "../evals/ceo-memory/v1/schema-ceo-extension.json",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  ) as Record<string, unknown>;
+  delete production._comment;
+  delete benchmark._comment;
   assert.deepEqual(production, benchmark);
 });
 
-test("CEO schema migration merges additions, preserves custom values, and is idempotent", () => {
+void test("CEO schema migration merges additions, preserves custom values, and is idempotent", () => {
   const root = mkdtempSync(join(tmpdir(), "iva-ceo-profile-"));
   const vault = join(root, "vault");
   mkdirSync(join(vault, "cards"), { recursive: true });
@@ -43,7 +60,15 @@ test("CEO schema migration merges additions, preserves custom values, and is ide
     const once = readFileSync(schemaPath, "utf8");
     const second = applyCeoProfile(vault);
     const migrated = JSON.parse(once) as typeof original & {
-      node_types: Record<string, any>;
+      node_types: Record<
+        string,
+        {
+          required: string[];
+          status: string[];
+          description: string;
+          custom?: boolean;
+        }
+      >;
       card_type_dirs: Record<string, unknown>;
       domain_inference: Record<string, unknown>;
       status_order: Record<string, number>;
@@ -52,13 +77,38 @@ test("CEO schema migration merges additions, preserves custom values, and is ide
     assert.equal(first.changed, true);
     assert.equal(second.changed, false);
     assert.equal(readFileSync(schemaPath, "utf8"), once);
-    assert.deepEqual(migrated.node_types.commitment.required, ["description", "custom_field", "tags", "status", "commitment_id", "owner", "deliverable", "due_at", "completed_at", "source", "source_role", "last_source", "last_source_role"]);
-    assert.deepEqual(migrated.node_types.commitment.status, ["open", "done", "cancelled"]);
-    assert.equal(migrated.node_types.commitment.description, "Owner's custom contract");
+    assert.deepEqual(migrated.node_types.commitment.required, [
+      "description",
+      "custom_field",
+      "tags",
+      "status",
+      "commitment_id",
+      "owner",
+      "deliverable",
+      "due_at",
+      "completed_at",
+      "source",
+      "source_role",
+      "last_source",
+      "last_source_role",
+    ]);
+    assert.deepEqual(migrated.node_types.commitment.status, [
+      "open",
+      "done",
+      "cancelled",
+    ]);
+    assert.equal(
+      migrated.node_types.commitment.description,
+      "Owner's custom contract",
+    );
     assert.equal(migrated.node_types.commitment.custom, true);
+    assert.deepEqual(migrated.node_types.project.status, ["blocked"]);
     assert.equal(migrated.owner_extension.keep, true);
     assert.equal(migrated.card_type_dirs.meeting, "meetings");
-    assert.equal(migrated.domain_inference["cards/commitments/"], "custom-work");
+    assert.equal(
+      migrated.domain_inference["cards/commitments/"],
+      "custom-work",
+    );
     assert.equal(migrated.status_order.open, 4);
     assert.equal(existsSync(join(vault, "cards", "commitments")), true);
     assert.equal(existsSync(join(vault, "cards", "meetings")), true);
