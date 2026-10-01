@@ -53,6 +53,8 @@ For `codex` there is no API key in `.env`: run `iva login` (device code, headles
 | `TELEGRAM_WEBHOOK_SECRET_TOKEN` | —         | Shared secret between the long-poll bridge and the local webhook. Any long random string.                                                                        |
 | `TELEGRAM_ALLOWED_USER_IDS`     | _(empty)_ | Comma-separated numeric user IDs allowed to talk to Iva.                                                                                                         |
 | `TELEGRAM_NOTIFICATION_CHAT_ID` | —         | The explicit user destination for reminders, morning digests and ordinary notifications. No fallback to the inbound allowlist. Usually your own private chat ID. |
+| `LIBRECHAT_NOTIFICATION_USERS`  | _(empty)_ | Comma-separated LibreChat email accounts allowed to see Iva notifications.                                                                                       |
+| `LIBRECHAT_NOTIFICATION_SECRET` | _(empty)_ | HMAC secret used by the authenticated LibreChat notification proxy.                                                                                              |
 | `TELEGRAM_DIAGNOSTIC_CHAT_ID`   | —         | Separate system chat for health and memory reports, update offers, technical failures and operational alerts. Never used for user reminders or morning digests.  |
 
 The allowlist is **fail-closed: empty means Iva answers nobody.** The wizard auto-discovers your ID the moment you message the bot; or ask [@userinfobot](https://t.me/userinfobot). Why fail-closed matters: [security.md](./security.md).

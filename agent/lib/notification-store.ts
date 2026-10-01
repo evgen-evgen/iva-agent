@@ -19,6 +19,7 @@ export type IvaNotification = {
   readonly createdAt: string;
   readonly source?: string;
   readonly readAt?: string;
+  readonly readBy?: Readonly<Record<string, string>>;
   readonly telegram?: {
     readonly status: NotificationDeliveryStatus;
     readonly at: string;
@@ -91,17 +92,46 @@ export async function listNotifications(
   return current.notifications.slice(-bounded).reverse();
 }
 
-export async function markNotificationRead(id?: string): Promise<number> {
+export async function markNotificationRead(
+  id?: string,
+  principalId?: string,
+): Promise<number> {
   let changed = 0;
   const readAt = new Date().toISOString();
   await update((items) =>
     items.map((item) => {
-      if (item.readAt || (id && item.id !== id)) return item;
+      if (id && item.id !== id) return item;
+      if (principalId) {
+        if (item.readBy?.[principalId]) return item;
+        changed++;
+        return {
+          ...item,
+          readBy: { ...item.readBy, [principalId]: readAt },
+        };
+      }
+      if (item.readAt) return item;
       changed++;
       return { ...item, readAt };
     }),
   );
   return changed;
+}
+
+export function notificationForPrincipal(
+  item: IvaNotification,
+  principalId: string,
+): IvaNotification {
+  const readAt = item.readBy?.[principalId];
+  return {
+    id: item.id,
+    kind: item.kind,
+    title: item.title,
+    body: item.body,
+    createdAt: item.createdAt,
+    ...(item.source ? { source: item.source } : {}),
+    ...(readAt ? { readAt } : {}),
+    ...(item.telegram ? { telegram: item.telegram } : {}),
+  };
 }
 
 export async function setNotificationTelegramDelivery(

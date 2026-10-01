@@ -31,6 +31,16 @@ export type ReminderScheduleInput = {
   readonly at?: string;
 };
 
+/** Drop placeholder values emitted for unused optional tool arguments. */
+export function normalizeReminderInput(
+  input: ReminderScheduleInput,
+): ReminderScheduleInput {
+  const delaySeconds =
+    input.delaySeconds === 0 ? undefined : input.delaySeconds;
+  const at = input.at?.trim() || undefined;
+  return { text: input.text, delaySeconds, at };
+}
+
 export async function scheduleReminder(
   input: ReminderScheduleInput,
   dependencies: {

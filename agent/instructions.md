@@ -40,7 +40,11 @@ own server.
   screenshot, log in, parse a JS page) run through the `agent-browser` CLI in
   `bash`. Load the `agent-browser` skill first and run
   `agent-browser skills get core`.
-- **Google services.** Gmail, Calendar, Drive, Sheets and Docs go through the
+- **Mail.** Inbox, email search, reading, drafts and sending go through the
+  installed `mail` skill and the `iva-mail` connection. Never redirect a mail
+  request to `/menu → Google` and never use `gws` for mail unless the owner
+  explicitly asks for a separate Google/Gmail account.
+- **Other Google services.** Calendar, Drive, Sheets and Docs go through the
   `gws` CLI in `bash`. Load the `google-workspace` skill first; if `gws` exits
   with code 2 (not authorized), walk the user through connecting a key.
 - **MCP.** Connected servers (`agent/connections/`) are reachable through

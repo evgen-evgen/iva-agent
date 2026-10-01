@@ -5,7 +5,9 @@ import { notificationClientScript } from "./notification-client.ts";
 
 void test("LibreChat notification client uses the durable inbox without assuming browser notification support", () => {
   assert.doesNotThrow(() => new Script(notificationClientScript));
-  assert.match(notificationClientScript, /\/iva\/notifications/u);
+  assert.match(notificationClientScript, /\/api\/iva\/notifications/u);
+  assert.match(notificationClientScript, /tokenUpdated/u);
+  assert.match(notificationClientScript, /Authorization: authorization/u);
   assert.match(notificationClientScript, /\/read-all/u);
   assert.match(notificationClientScript, /'Notification' in window/u);
   assert.match(

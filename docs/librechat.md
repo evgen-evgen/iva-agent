@@ -48,18 +48,15 @@ accounts can sign in. Open `http://127.0.0.1:3080` and select the `iva` model un
 users' LibreChat resources. It does not make the CEO an operating-system administrator.
 Both browser accounts reach the same Iva vault; this is not tenant isolation.
 
-On a remote server, forward both the LibreChat port and Iva's port from the browser's
-computer. The notification bell loads its script and inbox directly from Iva's loopback
-address; forwarding only LibreChat makes the chat work but leaves the bell disconnected:
+On a remote server, forward the LibreChat port. Its authenticated same-origin proxy relays
+the notification bell to Iva, so Iva's private port does not need to be exposed:
 
 ```bash
-ssh -L 3080:127.0.0.1:3080 -L 8723:127.0.0.1:8723 user@server
+ssh -L 3080:127.0.0.1:3080 user@server
 ```
 
-Then open `http://127.0.0.1:3080` on that computer. Replace `8723` if you changed
-`IVA_PORT`, and rebuild LibreChat after changing that port. A different browser origin,
-such as a Tailscale hostname or public HTTPS URL, needs a same-origin proxy for `/iva/*`
-before its bell can work; the current browser script is configured for loopback access.
+Then open `http://127.0.0.1:3080` on that computer. The same setup also works behind a
+Tailscale hostname or public HTTPS reverse proxy.
 
 Open WebUI and LibreChat can run simultaneously. They keep separate UI accounts and chat
 lists, but both conversations reach the same Iva vault, tools, memory, and model provider.
@@ -82,7 +79,10 @@ second set of LibreChat-native jobs.
 
 User reminders and morning digests go to `TELEGRAM_NOTIFICATION_CHAT_ID`. Health and memory
 reports, update offers, and operational failures go to the separate
-`TELEGRAM_DIAGNOSTIC_CHAT_ID`. Both are also written to LibreChat inbox.
+`TELEGRAM_DIAGNOSTIC_CHAT_ID`. Both are also written to the durable LibreChat inbox. `LIBRECHAT_NOTIFICATION_USERS`
+controls which authenticated email accounts may open that inbox. Read state is tracked
+separately for every account. `LIBRECHAT_NOTIFICATION_SECRET` authenticates the internal
+LibreChat-to-Iva proxy and must be the same non-empty value in both processes.
 
 For this checkout, run CLI delivery commands as `npm run iva -- notify "text"` or
 `npm run iva -- remind "text"`. The npm command loads this checkout's `.env`; do not use a

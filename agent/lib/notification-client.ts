@@ -26,11 +26,11 @@ export const notificationClientScript = String.raw`
 (() => {
   if (window.__ivaNotificationsLoaded) return;
   window.__ivaNotificationsLoaded = true;
-  const script = document.currentScript;
-  const api = new URL('/iva/notifications', script && script.src ? script.src : location.href).origin + '/iva/notifications';
+  const api = location.origin + '/api/iva/notifications';
   const seenKey = 'iva-notifications-last-seen';
   let items = [];
   let open = false;
+  let authorization = '';
 
   const style = document.createElement('style');
   style.textContent = ${JSON.stringify(notificationCss)};
@@ -41,6 +41,7 @@ export const notificationClientScript = String.raw`
   button.type = 'button';
   button.title = 'Уведомления Ивы';
   button.setAttribute('aria-label', 'Уведомления Ивы');
+  button.hidden = true;
   button.innerHTML = '<span aria-hidden="true">🔔</span><span id="iva-notification-badge"></span>';
   const panel = document.createElement('section');
   panel.id = 'iva-notification-panel';
@@ -52,9 +53,44 @@ export const notificationClientScript = String.raw`
   const list = panel.querySelector('#iva-notification-list');
   const readAll = panel.querySelector('#iva-notification-readall');
 
-  const request = async (path = '', options) => {
-    const response = await fetch(api + path, { cache: 'no-store', ...options });
-    if (!response.ok) throw new Error('notification API ' + response.status);
+  const rememberAuthorization = (value) => {
+    if (typeof value !== "string" || !/^Bearer\s+\S+$/i.test(value)) return;
+    const changed = authorization !== value;
+    authorization = value;
+    button.hidden = false;
+    if (changed) void refresh(false);
+  };
+  window.addEventListener("tokenUpdated", (event) => {
+    if (event && typeof event.detail === "string") {
+      rememberAuthorization("Bearer " + event.detail);
+    }
+  });
+  const xhrOpen = XMLHttpRequest.prototype.open;
+  const xhrSetRequestHeader = XMLHttpRequest.prototype.setRequestHeader;
+  XMLHttpRequest.prototype.open = function (method, url) {
+    this.__ivaRequestUrl = String(url);
+    return xhrOpen.apply(this, arguments);
+  };
+  XMLHttpRequest.prototype.setRequestHeader = function (name, value) {
+    if (String(name).toLowerCase() === "authorization") {
+      try {
+        const target = new URL(this.__ivaRequestUrl || "/", location.href);
+        if (target.origin === location.origin && target.pathname.startsWith("/api/")) {
+          rememberAuthorization(String(value));
+        }
+      } catch {}
+    }
+    return xhrSetRequestHeader.apply(this, arguments);
+  };
+
+  const request = async (path = "", options) => {
+    if (!authorization) throw new Error("notification auth is not ready");
+    const response = await fetch(api + path, {
+      cache: "no-store",
+      ...options,
+      headers: { ...(options && options.headers), Authorization: authorization },
+    });
+    if (!response.ok) throw new Error("notification API " + response.status);
     return response.json();
   };
   const formatTime = (value) => {

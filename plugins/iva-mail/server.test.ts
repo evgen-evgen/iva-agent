@@ -13,6 +13,7 @@ import {
 } from "./lib/mime.ts";
 import {
   connectionStatus,
+  hasImapSearchValue,
   imapSearchDate,
   prepareMessage,
   sendPrepared,
@@ -69,6 +70,13 @@ test("ISO dates are normalized for IMAP search", () => {
   assert.equal(imapSearchDate("2026-09-25", "since"), '"25-Sep-2026"');
   assert.throws(() => imapSearchDate("2026-13-25", "since"), /YYYY-MM-DD/u);
   assert.throws(() => imapSearchDate("2026-02-31", "since"), /YYYY-MM-DD/u);
+});
+
+test("empty optional IMAP search filters are ignored", () => {
+  assert.equal(hasImapSearchValue(undefined), false);
+  assert.equal(hasImapSearchValue(""), false);
+  assert.equal(hasImapSearchValue("   "), false);
+  assert.equal(hasImapSearchValue("value"), true);
 });
 
 test("connection status never returns the password and supports unauthenticated SMTP", () => {

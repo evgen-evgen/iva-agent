@@ -68,6 +68,11 @@ function safeMailbox(value: unknown): string {
   return mailbox;
 }
 
+export function hasImapSearchValue(value: unknown): boolean {
+  return value !== undefined &&
+    (typeof value !== "string" || value.trim().length > 0);
+}
+
 function imapSearchValue(value: unknown, field: string): string {
   return imapQuote(safeHeader(value, field, 500));
 }
@@ -281,17 +286,17 @@ export async function listMessages(
     ["subject", "SUBJECT"],
     ["text", "TEXT"],
   ] as const) {
-    if (arguments_[field] !== undefined)
+    if (hasImapSearchValue(arguments_[field]))
       criteria.push(keyword, imapSearchValue(arguments_[field], field));
   }
   for (const [field, keyword] of [
     ["since", "SINCE"],
     ["before", "BEFORE"],
   ] as const) {
-    if (arguments_[field] !== undefined)
+    if (hasImapSearchValue(arguments_[field]))
       criteria.push(keyword, imapSearchDate(arguments_[field], field));
   }
-  if (arguments_.message_id !== undefined)
+  if (hasImapSearchValue(arguments_.message_id))
     criteria.push(
       "HEADER",
       "Message-ID",

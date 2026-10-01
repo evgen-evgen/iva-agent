@@ -7,6 +7,7 @@ import {
   createNotification,
   listNotifications,
   markNotificationRead,
+  notificationForPrincipal,
   setNotificationTelegramDelivery,
 } from "./notification-store.ts";
 
@@ -33,6 +34,21 @@ void test("notification inbox persists, orders and acknowledges entries", async 
     assert.equal(await markNotificationRead(first.id), 0);
     assert.equal(await markNotificationRead(), 1);
     assert.ok((await listNotifications()).every((item) => item.readAt));
+
+    assert.equal(await markNotificationRead(second.id, "librechat:dima"), 1);
+    const storedSecond = (await listNotifications()).find(
+      (item) => item.id === second.id,
+    );
+    assert.ok(storedSecond);
+    assert.ok(notificationForPrincipal(storedSecond, "librechat:dima").readAt);
+    assert.equal(
+      notificationForPrincipal(storedSecond, "librechat:admin").readAt,
+      undefined,
+    );
+    assert.equal(
+      notificationForPrincipal(storedSecond, "librechat:dima").readBy,
+      undefined,
+    );
 
     const raw = JSON.parse(
       await readFile(join(directory, "notifications.json"), "utf8"),

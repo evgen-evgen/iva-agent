@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { defineChannel, GET, POST, type Session } from "eve/channels";
 import {
   inboundTruncationNotice,
@@ -19,6 +20,7 @@ import { notificationClientScript } from "../lib/notification-client.js";
 import {
   listNotifications,
   markNotificationRead,
+  notificationForPrincipal,
 } from "../lib/notification-store.js";
 import { sanitizeInbound } from "../lib/security-gate.js";
 import { appendDaily, localStamp, saveBlob } from "../lib/vault-daily.js";
@@ -31,17 +33,57 @@ type StreamEvent = {
 
 const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
 
-function allowedNotificationOrigin(request: Request): boolean {
-  const origin = request.headers.get("origin");
-  const port = process.env.LIBRECHAT_PORT?.trim() || "3080";
-  return (
-    origin === `http://127.0.0.1:${port}` ||
-    origin === `http://localhost:${port}`
+type NotificationPrincipal = { readonly id: string; readonly email: string };
+
+function configuredNotificationUsers(): Set<string> {
+  return new Set(
+    (process.env.LIBRECHAT_NOTIFICATION_USERS ?? "")
+      .split(",")
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean),
   );
 }
 
-function denyNotificationOrigin(): Response {
-  return Response.json({ error: "forbidden origin" }, { status: 403 });
+function validNotificationSignature(
+  request: Request,
+  id: string,
+  email: string,
+): boolean {
+  const secret = process.env.LIBRECHAT_NOTIFICATION_SECRET?.trim();
+  const timestamp = request.headers.get("x-iva-notification-timestamp")?.trim();
+  const supplied = request.headers.get("x-iva-notification-signature")?.trim();
+  if (!secret || !timestamp || !supplied || !/^\d+$/u.test(timestamp))
+    return false;
+  if (Math.abs(Date.now() - Number(timestamp)) > 30_000) return false;
+  const expected = createHmac("sha256", secret)
+    .update(`${timestamp}\0${id}\0${email}`)
+    .digest();
+  let actual: Buffer;
+  try {
+    actual = Buffer.from(supplied, "hex");
+  } catch {
+    return false;
+  }
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+function notificationPrincipal(request: Request): NotificationPrincipal | null {
+  const id = request.headers.get("x-librechat-user-id")?.trim();
+  const email = request.headers
+    .get("x-librechat-user-email")
+    ?.trim()
+    .toLowerCase();
+  if (!id || !email || !validNotificationSignature(request, id, email))
+    return null;
+  if (!configuredNotificationUsers().has(email)) return null;
+  return { id: `librechat:${id}`, email };
+}
+
+function denyNotifications(): Response {
+  return Response.json(
+    { error: "notifications are not enabled for this user" },
+    { status: 403 },
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -148,24 +190,31 @@ export default defineChannel({
   // loopback LibreChat origin. `cors: true` lets Eve answer browser preflights.
   cors: true,
   routes: [
-    GET("/iva/notifications/client.js", () =>
-      Promise.resolve(
+    GET("/iva/notifications/client.js", (request) => {
+      if (!authorizedOpenWebUiRequest(request)) {
+        return Promise.resolve(denyNotifications());
+      }
+      return Promise.resolve(
         new Response(notificationClientScript, {
           headers: {
             "content-type": "text/javascript; charset=utf-8",
             "cache-control": "no-cache",
           },
         }),
-      ),
-    ),
+      );
+    }),
     GET("/iva/notifications", async (request) => {
-      if (!allowedNotificationOrigin(request)) return denyNotificationOrigin();
+      const principal = notificationPrincipal(request);
+      if (!principal) return denyNotifications();
       try {
-        const notifications = (await listNotifications()).map((item) => ({
-          ...item,
-          body: redactNotice(item.body),
-          title: redactNotice(item.title),
-        }));
+        const notifications = (await listNotifications()).map((stored) => {
+          const item = notificationForPrincipal(stored, principal.id);
+          return {
+            ...item,
+            body: redactNotice(item.body),
+            title: redactNotice(item.title),
+          };
+        });
         return Response.json(
           {
             notifications,
@@ -182,9 +231,12 @@ export default defineChannel({
       }
     }),
     POST("/iva/notifications/read-all", async (request) => {
-      if (!allowedNotificationOrigin(request)) return denyNotificationOrigin();
+      const principal = notificationPrincipal(request);
+      if (!principal) return denyNotifications();
       try {
-        return Response.json({ changed: await markNotificationRead() });
+        return Response.json({
+          changed: await markNotificationRead(undefined, principal.id),
+        });
       } catch (error) {
         console.error("[notifications] acknowledge all failed:", error);
         return Response.json(
@@ -194,10 +246,11 @@ export default defineChannel({
       }
     }),
     POST("/iva/notifications/:id/read", async (request, { params }) => {
-      if (!allowedNotificationOrigin(request)) return denyNotificationOrigin();
+      const principal = notificationPrincipal(request);
+      if (!principal) return denyNotifications();
       try {
         return Response.json({
-          changed: await markNotificationRead(params.id),
+          changed: await markNotificationRead(params.id, principal.id),
         });
       } catch (error) {
         console.error("[notifications] acknowledge failed:", error);

@@ -1,8 +1,27 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { scheduleReminder, type ReminderCommand } from "./reminder-schedule.ts";
+import {
+  normalizeReminderInput,
+  scheduleReminder,
+  type ReminderCommand,
+} from "./reminder-schedule.ts";
 
 const ROOT = process.cwd();
+
+void test("unused placeholder schedule arguments are ignored", () => {
+  assert.deepEqual(
+    normalizeReminderInput({ text: "Позвонить", delaySeconds: 600, at: "" }),
+    { text: "Позвонить", delaySeconds: 600, at: undefined },
+  );
+  assert.deepEqual(
+    normalizeReminderInput({
+      text: "Сводка",
+      delaySeconds: 0,
+      at: " 2026-10-01 08:00:00 ",
+    }),
+    { text: "Сводка", delaySeconds: undefined, at: "2026-10-01 08:00:00" },
+  );
+});
 
 void test("relative reminders use a monotonic timer and this Iva checkout", async () => {
   const calls: Array<{ file: string; args: readonly string[]; cwd: string }> =
