@@ -13,7 +13,10 @@ import {
   syncPlaud,
   requirePlaudMemorySchema,
 } from "../lib/plaud-import.ts";
-import { readSettings, writeSettings } from "../lib/settings.ts";
+import {
+  readPlaudSyncConfig,
+  setPlaudSyncEnabled,
+} from "../lib/plaud-settings.ts";
 
 export default defineTool({
   description:
@@ -42,11 +45,12 @@ export default defineTool({
             await requirePlaudMemorySchema(
               process.env.ASSISTANT_VAULT_DIR || "vault",
             );
-          writeSettings({ plaudSync: { enabled: input.action === "enable" } });
+          setPlaudSyncEnabled(input.action === "enable");
           return { ok: true, enabled: input.action === "enable" };
         case "sync": {
+          const { since } = readPlaudSyncConfig();
           const result = await withPlaudClient((call) =>
-            syncPlaud(root, call, 2),
+            syncPlaud(root, call, since ? 1 : 2, 1, since),
           );
           const { pending, ...stats } = result;
           return {
@@ -62,10 +66,10 @@ export default defineTool({
         case "pending":
           return {
             ok: true,
-            enabled:
-              (readSettings().plaudSync as { enabled?: boolean } | undefined)
-                ?.enabled === true,
-            pending: (await pendingPlaud(root)).map((item) => ({
+            enabled: readPlaudSyncConfig().enabled,
+            pending: (
+              await pendingPlaud(root, undefined, readPlaudSyncConfig().since)
+            ).map((item) => ({
               key: plaudKey(item.account, item.fileId),
               revision: item.revision,
               metadata: item.metadata,

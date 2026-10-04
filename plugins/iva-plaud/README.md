@@ -56,7 +56,22 @@ without flags for a manual sync, or `--disable` to stop background importing. Fr
 ask Iva to enable Plaud synchronization (the `plaud_import` tool owns the toggle).
 A rebuilt and restarted agent is required for a new schedule/tool to become available.
 
-Each tick checks the newest page and one rotating archive page, including old recordings
+Import clients start their own short-lived stdio MCP process using the trusted plugin
+configuration and private credentials. They do not open or close the interactive HTTP
+proxy session, so background/manual imports cannot disconnect Iva’s ordinary Plaud tools.
+Only the restricted plugin environment is passed to these processes. Import requests
+are paced, and explicit Plaud rate limits are retried with bounded backoff. Missing or
+pending transcript blocks stay unimported until a later scan.
+
+Newly enabled synchronization defaults to recordings created from the moment of enablement.
+The persistent `plaudSync.since` cutoff in `data/settings.json` applies to both importing
+and pending context processing; toggling synchronization preserves it. Recording start
+time takes precedence over upload time, so uploading an old recording later does not
+make it new. Unknown dates are excluded. Existing archives are retained. In this mode
+only the newest page is checked; old pending imports are not automatically processed.
+
+For a legacy configuration without a cutoff, each tick checks the newest page and one
+rotating archive page, including old recordings
 whose contents changed. There is no documented updated-since filter: a full archive sweep
 is eventual, not instantaneous. Interactive sync checks the first two pages. Sources
 without a transcript stay unimported and are retried on later checks.

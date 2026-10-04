@@ -2,7 +2,10 @@ import { join } from "node:path";
 import { Client } from "eve/client";
 import { writeFileAtomic } from "#lib/fs-atomic.ts";
 import { readFile } from "node:fs/promises";
-import { readSettings, writeSettings } from "#lib/settings.ts";
+import {
+  readPlaudSyncConfig,
+  setPlaudSyncEnabled,
+} from "#lib/plaud-settings.ts";
 import { plaudSourceRoot, withPlaudClient } from "#lib/plaud-client.ts";
 import {
   pendingPlaud,
@@ -13,16 +16,16 @@ import {
 
 if (process.argv.includes("--enable")) {
   await requirePlaudMemorySchema(process.env.ASSISTANT_VAULT_DIR || "vault");
-  writeSettings({ plaudSync: { enabled: true } });
+  setPlaudSyncEnabled(true);
 }
 if (process.argv.includes("--disable")) {
-  writeSettings({ plaudSync: { enabled: false } });
+  setPlaudSyncEnabled(false);
   console.log("Plaud background sync disabled");
 } else if (
   !process.argv.includes("--scheduled") ||
-  (readSettings().plaudSync as { enabled?: boolean } | undefined)?.enabled ===
-    true
+  readPlaudSyncConfig().enabled
 ) {
+  const { since } = readPlaudSyncConfig();
   // Page 1 each tick catches new recordings; a rotating second page reconciles old edits.
   const cursorFile = join(plaudSourceRoot(), "scan.json");
   let page = 2;
@@ -43,11 +46,13 @@ if (process.argv.includes("--disable")) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
   const result = await withPlaudClient(async (call) => {
-    const recent = await syncPlaud(plaudSourceRoot(), call, 1);
+    const recent = await syncPlaud(plaudSourceRoot(), call, 1, 1, since);
     if (scanAccount !== recent.account) {
       page = 2;
       processingAfter = "";
     }
+    // A new-recordings-only scope never walks the historical archive.
+    if (since) return recent;
     const archive = await syncPlaud(plaudSourceRoot(), call, 1, page);
     if (recent.account !== archive.account)
       throw new Error("Plaud account changed during sync");
@@ -107,7 +112,11 @@ if (process.argv.includes("--disable")) {
       throw new Error(
         "Plaud context processing failed; sources remain pending",
       );
-    const remaining = await pendingPlaud(plaudSourceRoot(), result.account);
+    const remaining = await pendingPlaud(
+      plaudSourceRoot(),
+      result.account,
+      since,
+    );
     if (
       selected.some((item) =>
         remaining.some(

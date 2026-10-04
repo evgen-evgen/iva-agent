@@ -5,6 +5,15 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { startMcpProxy } from "../services/mcp-proxy/proxy.ts";
+import {
+  MCP_SCHEMA_URL,
+  PLUGIN_SCHEMA_URL,
+} from "../agent/lib/plugin-reader.ts";
+import { pluginDataDir, pluginRoot } from "../agent/lib/plugin-store.ts";
 import {
   pendingPlaud,
   plaudKey,
@@ -125,6 +134,110 @@ test("enable refuses missing CEO schema and toggles only after the schema is pre
       card_type_dirs: { meeting: "meetings", commitment: "commitments" },
     }),
   );
+  const { readSettings, writeSettings } =
+    await import("../agent/lib/settings.ts");
+  const since = "2026-10-04T20:27:59.131Z";
+  writeSettings({ plaudSync: { enabled: false, since } });
   assert.equal((await tool.execute({ action: "enable" })).ok, true);
+  assert.deepEqual(readSettings().plaudSync, { enabled: true, since });
   assert.equal((await tool.execute({ action: "disable" })).ok, true);
+  assert.deepEqual(readSettings().plaudSync, { enabled: false, since });
+});
+
+test("sync clients can close independently while interactive Plaud tools remain connected", async () => {
+  const dir = process.env.ASSISTANT_DATA_DIR!;
+  const installed = pluginRoot(dir, "iva-plaud");
+  mkdirSync(installed, { recursive: true });
+  mkdirSync(pluginDataDir(dir, "iva-plaud"), { recursive: true });
+  writeFileSync(
+    join(installed, "plugin.json"),
+    JSON.stringify({
+      $schema: PLUGIN_SCHEMA_URL,
+      name: "iva-plaud",
+    }),
+  );
+  writeFileSync(
+    join(installed, "mcp.json"),
+    JSON.stringify({
+      $schema: MCP_SCHEMA_URL,
+      mcpServers: {
+        plaud: {
+          type: "stdio",
+          command: "node",
+          args: [
+            fileURLToPath(
+              new URL("./fixtures/mcp-echo-server.ts", import.meta.url),
+            ),
+          ],
+          env: { HOME: "${PLUGIN_DATA}" },
+        },
+      },
+    }),
+  );
+  writeFileSync(
+    join(dir, "custom", "plugins.json"),
+    JSON.stringify({
+      plugins: [
+        {
+          name: "iva-plaud",
+          source: "local",
+          ref: "",
+          sha: "",
+          digest: "",
+          enabled: true,
+          trusted: true,
+          installedAt: "2026-10-04",
+          mcp: { plaud: { port: 8730 } },
+        },
+      ],
+    }),
+  );
+  const proxy = await startMcpProxy({
+    plugin: "iva-plaud",
+    server: "plaud",
+    port: 0,
+    token: "test-token",
+    dataDir: dir,
+    log: () => {},
+  });
+  const interactive = new Client({ name: "interactive", version: "1.0.0" });
+  const marker = process.env.IVA_PLAUD_PRIVATE_MARKER;
+  const inheritedPath = process.env.PATH;
+  process.env.IVA_PLAUD_PRIVATE_MARKER = "must-not-leak";
+  try {
+    await interactive.connect(
+      new StreamableHTTPClientTransport(
+        new URL(`http://127.0.0.1:${proxy.port}/mcp`),
+        { requestInit: { headers: { Authorization: "Bearer test-token" } } },
+      ),
+    );
+    process.env.PATH = "/missing-systemd-node-bin";
+    await withPlaudClient(async (first) => {
+      await first("echo", {});
+      await withPlaudClient(async (second) => {
+        const result = (await second("echo", {})) as {
+          env: Record<string, string>;
+        };
+        assert.equal(result.env.HOME, pluginDataDir(dir, "iva-plaud"));
+        assert.equal(result.env.IVA_PLAUD_PRIVATE_MARKER, undefined);
+      });
+      // Closing the second import must not close the first or Iva's session.
+      await first("echo", {});
+      assert.equal(
+        (await interactive.callTool({ name: "echo", arguments: {} })).isError,
+        undefined,
+      );
+    });
+    assert.equal(
+      (await interactive.callTool({ name: "echo", arguments: {} })).isError,
+      undefined,
+    );
+  } finally {
+    if (inheritedPath === undefined) delete process.env.PATH;
+    else process.env.PATH = inheritedPath;
+    if (marker === undefined) delete process.env.IVA_PLAUD_PRIVATE_MARKER;
+    else process.env.IVA_PLAUD_PRIVATE_MARKER = marker;
+    await interactive.close();
+    await proxy.close();
+  }
 });

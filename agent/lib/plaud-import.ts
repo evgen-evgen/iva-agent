@@ -12,6 +12,12 @@ export type PlaudCall = (
   name: string,
   args: Record<string, unknown>,
 ) => Promise<unknown>;
+export class PlaudRateLimitError extends Error {
+  constructor() {
+    super("Plaud request limit reached; retry later");
+    this.name = "PlaudRateLimitError";
+  }
+}
 const object = z.record(z.string(), z.unknown());
 const snapshotSchema = z.object({
   account: z.string(),
@@ -30,12 +36,33 @@ export const plaudKey = (account: string, fileId: string) =>
 
 // 0.3.13 wraps JSON in a fresh random untrusted-data delimiter on EVERY call.
 // Decode only that envelope; never hash the wrapper or expiring signed URLs.
-export function decodePlaudResult(raw: unknown): unknown {
+export function decodePlaudResult(raw: unknown, toolName?: string): unknown {
   const result = object.parse(raw);
-  if (result.isError === true)
+  if (result.isError === true) {
+    const diagnostics = Array.isArray(result.content)
+      ? result.content
+          .flatMap((item: unknown) => {
+            if (
+              typeof item !== "object" ||
+              item === null ||
+              !("text" in item) ||
+              typeof item.text !== "string"
+            )
+              return [];
+            return [item.text];
+          })
+          .join("\n")
+      : "";
+    if (/\b429\b|too many requests/iu.test(diagnostics))
+      throw new PlaudRateLimitError();
+    if (/not authenticated|please log\s?in first/iu.test(diagnostics))
+      throw new Error(
+        "Plaud MCP call failed: account is not authenticated; sign in to Plaud first",
+      );
     throw new Error(
       "Plaud MCP call failed; check authentication and server status",
     );
+  }
   if (result.structuredContent !== undefined) return result.structuredContent;
   const content = z
     .array(z.object({ type: z.string(), text: z.string().optional() }))
@@ -58,6 +85,16 @@ export function decodePlaudResult(raw: unknown): unknown {
   } catch {
     // A transcript block may be plain text; unwrapped diagnostics are NOT data.
     if (start) return payload;
+    // Official 0.3.13 reports an absent/pending transaction block as a plain
+    // diagnostic (isError is not set). This is a not-ready recording, not data.
+    if (
+      toolName === "get_transcript" &&
+      (/^Block "transaction" not available for this recording\. Available blocks: [^\r\n]*\.$/u.test(
+        text,
+      ) ||
+        text === 'Block "transaction" has no content for this recording yet.')
+    )
+      return [];
     throw new Error(
       "Unexpected Plaud response; refusing to import diagnostics as recording data",
     );
@@ -144,9 +181,30 @@ export async function savePlaudSnapshot(
   });
 }
 
+// Plaud's official MCP interprets timezone-free API timestamps as UTC.
+function sourceTimestamp(value: unknown): number | undefined {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T/u.test(value)) return;
+  const normalized = /(?:Z|[+-]\d{2}:?\d{2})$/u.test(value)
+    ? value
+    : `${value}Z`;
+  const result = Date.parse(normalized);
+  return Number.isFinite(result) ? result : undefined;
+}
+
+export function plaudMetadataInScope(
+  metadata: Record<string, unknown>,
+  since?: string,
+): boolean {
+  if (!since) return true;
+  const cutoff = Date.parse(z.iso.datetime({ offset: true }).parse(since));
+  const recorded = sourceTimestamp(metadata.start_at ?? metadata.created_at);
+  return recorded !== undefined && recorded >= cutoff;
+}
+
 export async function pendingPlaud(
   root: string,
   account?: string,
+  since?: string,
 ): Promise<PlaudSnapshot[]> {
   let entries: string[];
   try {
@@ -162,6 +220,7 @@ export async function pendingPlaud(
     if (raw === undefined) continue;
     const snapshot = snapshotSchema.parse(raw);
     if (account && snapshot.account !== account) continue;
+    if (!plaudMetadataInScope(snapshot.metadata, since)) continue;
     const done = await readOptional(join(root, key, "processed.json"));
     if (done === undefined || object.parse(done).revision !== snapshot.revision)
       pending.push(snapshot);
@@ -252,7 +311,9 @@ export async function syncPlaud(
   call: PlaudCall,
   maxPages = 20,
   firstPage = 1,
+  since?: string,
 ) {
+  if (since) z.iso.datetime({ offset: true }).parse(since);
   return locked(root, "sync", async () => {
     const user = object.parse(await call("get_current_user", {}));
     const account = z
@@ -276,6 +337,12 @@ export async function syncPlaud(
         if (seen.has(fileId)) continue;
         seen.add(fileId);
         checked++;
+        // Older entries can be excluded before fetching their contents. Detailed
+        // metadata still checks recording time, so uploading an old meeting later
+        // does not turn it into a new recording.
+        const created = sourceTimestamp(file.created_at);
+        if (since && created !== undefined && created < Date.parse(since))
+          continue;
         try {
           const details = object.parse(
             await call("get_file", { file_id: fileId }),
@@ -286,6 +353,7 @@ export async function syncPlaud(
               details[key],
             ]),
           );
+          if (!plaudMetadataInScope(metadata, since)) continue;
           const body = await transcript(call, fileId);
           const notes = z
             .array(object)
@@ -322,7 +390,7 @@ export async function syncPlaud(
       errors,
       exhausted,
       nextPage,
-      pending: await pendingPlaud(root, account),
+      pending: await pendingPlaud(root, account, since),
     };
   });
 }

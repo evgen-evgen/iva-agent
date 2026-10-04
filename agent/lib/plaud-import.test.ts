@@ -8,6 +8,7 @@ import {
   decodePlaudResult,
   finishPlaud,
   pendingPlaud,
+  plaudMetadataInScope,
   plaudKey,
   readPlaudSnapshot,
   savePlaudSnapshot,
@@ -54,6 +55,16 @@ test("official random envelopes decode to identical data and diagnostics fail cl
   assert.throws(
     () => decodePlaudResult({ isError: true, content: [] }),
     /failed/,
+  );
+  assert.throws(
+    () =>
+      decodePlaudResult({
+        isError: true,
+        content: [
+          { type: "text", text: "Not authenticated. Please login first." },
+        ],
+      }),
+    /account is not authenticated; sign in/u,
   );
   assert.throws(
     () =>
@@ -238,4 +249,118 @@ test("bounded scans indicate coverage and accept a rotating archive page", async
     assert.deepEqual(pages, [8]);
     assert.equal(result.exhausted, false);
     assert.equal(result.nextPage, 9);
+  }));
+
+test("official missing/pending transaction diagnostics are skipped only for transcript calls", () => {
+  for (const text of [
+    'Block "transaction" not available for this recording. Available blocks: outline.',
+    'Block "transaction" has no content for this recording yet.',
+  ]) {
+    const result = { content: [{ type: "text", text }] };
+    assert.deepEqual(decodePlaudResult(result, "get_transcript"), []);
+    assert.throws(
+      () => decodePlaudResult(result, "get_note"),
+      /Unexpected Plaud response/,
+    );
+  }
+  assert.throws(
+    () =>
+      decodePlaudResult(
+        { content: [{ type: "text", text: "temporary server failure" }] },
+        "get_transcript",
+      ),
+    /Unexpected Plaud response/,
+  );
+});
+
+test("explicit Plaud rate limits remain distinct from authentication failures", () => {
+  assert.throws(
+    () =>
+      decodePlaudResult({
+        isError: true,
+        content: [{ type: "text", text: "API error: 429 Too Many Requests" }],
+      }),
+    { name: "PlaudRateLimitError" },
+  );
+});
+
+test("new-only scope uses recording time and interprets timezone-free Plaud dates as UTC", () => {
+  const since = "2026-10-04T20:27:59.131Z";
+  assert.equal(
+    plaudMetadataInScope({ start_at: "2026-10-04T20:28:00" }, since),
+    true,
+  );
+  assert.equal(
+    plaudMetadataInScope({ start_at: "2026-10-04T23:28:00+03:00" }, since),
+    true,
+  );
+  assert.equal(
+    plaudMetadataInScope(
+      { start_at: "2026-10-01T00:00:00", created_at: "2026-10-05T00:00:00" },
+      since,
+    ),
+    false,
+  );
+  assert.equal(
+    plaudMetadataInScope({ created_at: "2026-10-04T20:28:00" }, since),
+    true,
+  );
+  assert.equal(plaudMetadataInScope({}, since), false);
+  assert.throws(() => plaudMetadataInScope({}, "broken"));
+});
+
+test("new-only sync excludes old recordings and archived backlog without downloading or deleting them", async () =>
+  fixture(async (root) => {
+    const since = "2026-10-04T20:27:59.131Z";
+    await savePlaudSnapshot(root, {
+      ...source,
+      metadata: { created_at: "2026-09-01T00:00:00" },
+    });
+    const fetched: string[] = [];
+    const call: PlaudCall = (name, args) => {
+      fetched.push(
+        `${name}:${typeof args.file_id === "string" ? args.file_id : ""}`,
+      );
+      if (name === "get_current_user") return Promise.resolve({ id: "ceo" });
+      if (name === "list_files")
+        return Promise.resolve({
+          data: [
+            { id: "old", created_at: "2026-09-01T00:00:00" },
+            { id: "uploaded-old", created_at: "2026-10-05T00:00:00" },
+            { id: "new", created_at: "2026-10-05T00:00:00" },
+            { id: "unknown" },
+          ],
+        });
+      if (name === "get_file")
+        return Promise.resolve({
+          id: args.file_id,
+          ...(args.file_id === "unknown"
+            ? {}
+            : {
+                created_at: "2026-10-05T00:00:00",
+                start_at:
+                  args.file_id === "uploaded-old"
+                    ? "2026-09-01T00:00:00"
+                    : "2026-10-05T00:00:00",
+              }),
+        });
+      if (name === "get_transcript")
+        return Promise.resolve([{ text: "New meeting" }]);
+      if (name === "get_note") return Promise.resolve([]);
+      throw new Error(`Unexpected call ${name}`);
+    };
+    const result = await syncPlaud(root, call, 1, 1, since);
+    assert.equal(result.imported, 1);
+    assert.deepEqual(result.errors, []);
+    assert.deepEqual(
+      result.pending.map((s) => s.fileId),
+      ["new"],
+    );
+    assert.equal(fetched.includes("get_file:old"), false);
+    assert.deepEqual(
+      fetched.filter((s) => s.startsWith("get_transcript:")),
+      ["get_transcript:new"],
+    );
+    assert.equal((await pendingPlaud(root)).length, 2);
+    assert.equal((await pendingPlaud(root, "ceo", since)).length, 1);
   }));
