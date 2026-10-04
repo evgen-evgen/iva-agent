@@ -117,6 +117,8 @@ Brand-new VPS, still logged in as root? Run `bash <(curl -fsSL https://raw.githu
 
 Install as a normal user, not as root — Iva's shell tool runs as whoever installed it. Headless installs take `--skip-setup` or `--non-interactive`. Prefer to read before you run? Fetch it with `curl -fsSL https://raw.githubusercontent.com/smixs/iva-agent/main/install.sh -o install.sh`, read it, then `bash install.sh`. Wizard walkthrough and an SSH primer for first-time VPS owners: [docs/install.md](docs/install.md).
 
+Full startup with Telegram, LibreChat, Mail and Plaud (Russian): [end-to-end guide](docs/ru/full-startup.md).
+
 ### The first minute
 
 Three messages, and you can watch the memory work:

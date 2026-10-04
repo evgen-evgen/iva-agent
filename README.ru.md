@@ -113,6 +113,8 @@ curl -fsSL https://raw.githubusercontent.com/smixs/iva-agent/main/install.sh | b
 
 Ставьте от обычного пользователя, не от root: shell-инструмент Ивы работает с правами того, кто её поставил. Для установки без диалога есть `--skip-setup` и `--non-interactive`. Хотите сначала прочитать скрипт - заберите его через `curl -fsSL https://raw.githubusercontent.com/smixs/iva-agent/main/install.sh -o install.sh`, прочитайте, потом `bash install.sh`. Прохождение мастера шаг за шагом и SSH-ликбез для тех, у кого VPS впервые: [docs/ru/install.md](docs/ru/install.md).
 
+Полный запуск с Telegram, LibreChat, Mail и Plaud: [единая инструкция](docs/ru/full-startup.md).
+
 ### Шаг 0 (опционально): подготовка свежего VPS
 
 Только что купили VPS и сидите под root? Этот скрипт готовит машину до установки Ивы: заводит sudo-пользователя (сразу с linger), обновляет систему и ставит зависимости. Заодно включает фаервол (наружу открыт только SSH), fail2ban и автоматические обновления безопасности, а вход под root по SSH закрывает.

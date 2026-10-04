@@ -5,6 +5,8 @@ Plaud's read-only tools for listing/searching recordings and reading their trans
 summaries, and action items. Iva's `plaud` skill explains how to use those tools and how to
 capture owner-approved facts in the existing vault schema.
 
+Full end-to-end startup guide (Russian): [Plaud → CEO memory](../../docs/ru/plaud.md).
+
 ## Install
 
 From the Iva checkout, install the local plugin into the target data directory:

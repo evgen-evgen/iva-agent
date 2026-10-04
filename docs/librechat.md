@@ -5,6 +5,9 @@ Iva's OpenAI-compatible `/v1` endpoint; models and tools still run inside Iva. L
 own agents, prompts, memory, MCP, skills, web search, file search, marketplace, and model parameters are disabled
 in `librechat.yaml` so there is only one source of agent behavior.
 
+Full Iva startup with Telegram, Mail and Plaud (Russian):
+[End-to-end guide](ru/full-startup.md).
+
 ## Start
 
 Start Iva in one terminal:

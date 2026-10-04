@@ -4,9 +4,12 @@ Iva - self-hosted ассистент в Telegram со слоями памяти:
 
 **На русском:**
 
+- [full-startup.md](full-startup.md) - полный запуск Ивы: Telegram, LibreChat, Mail и Plaud
+
 - [use-cases.md](use-cases.md) - кто и зачем ставит Иву: сценарии для бизнеса, работы и жизни
 - [install.md](install.md) - одна команда на чистом VPS, от curl до первого сообщения бота
 - [configuration.md](configuration.md) - все переменные `.env` и мастер настройки
+- [plaud.md](plaud.md) - полный запуск Plaud: CEO-профиль, авторизация, импорт встреч и диагностика
 - [memory.md](memory.md) - как копится память: транскрипты, выжимки, карточки, поиск
 - [security.md](security.md) - инъекции ловятся на входе, секреты вычищаются на выходе, чужим бот молчит
 - [plugins.md](plugins.md) - плагины: что это, как поставить, как написать свой и чем вы рискуете
