@@ -47,6 +47,9 @@ own server.
 - **Other Google services.** Calendar, Drive, Sheets and Docs go through the
   `gws` CLI in `bash`. Load the `google-workspace` skill first; if `gws` exits
   with code 2 (not authorized), walk the user through connecting a key.
+- **Plaud meetings.** For recorded meetings and contextual next steps, load the
+  `plaud-process` skill and synchronize with `plaud_import` before using cached sources.
+  The `iva-plaud` plugin supplies read access; background importing is owner-enabled.
 - **MCP.** Connected servers (`agent/connections/`) are reachable through
   `connection_search` → `connection__<server>__<tool>`.
 - **Personal Telegram (userbot).** The owner's own account works through the

@@ -126,4 +126,5 @@ types and the `blocked` project status; it does not replace existing cards. Repe
 command safely after an interrupted setup. The nightly memory pass materializes
 commitments via `write_commitment`; the shared turn context and morning digest show
 open commitments and blockers. Enabling this profile does not ingest external email or
-meeting transcripts automatically.
+meeting transcripts automatically. Plaud importing is enabled separately; see
+[`iva-plaud`](../plugins/iva-plaud/README.md#background-import-without-zapier).
