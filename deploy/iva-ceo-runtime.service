@@ -1,0 +1,15 @@
+[Unit]
+Description=Iva CEO runtime
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=__PROJECT_DIR__
+ExecStart=__NODE__ --env-file=__PROJECT_DIR__/.env __PROJECT_DIR__/scripts/start-ui.mjs
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

@@ -29,6 +29,9 @@ export const notificationClientScript = String.raw`
   const api = location.origin + '/api/iva/notifications';
   const seenKey = 'iva-notifications-last-seen';
   let items = [];
+  let unreadCount = 0;
+  let hasMore = false;
+  const expandedBodies = new Map();
   let open = false;
   let authorization = '';
 
@@ -41,28 +44,35 @@ export const notificationClientScript = String.raw`
   button.type = 'button';
   button.title = 'Уведомления Ивы';
   button.setAttribute('aria-label', 'Уведомления Ивы');
-  button.hidden = true;
+  button.hidden = false;
   button.innerHTML = '<span aria-hidden="true">🔔</span><span id="iva-notification-badge"></span>';
   const panel = document.createElement('section');
   panel.id = 'iva-notification-panel';
   panel.setAttribute('aria-label', 'Уведомления Ивы');
-  panel.innerHTML = '<div id="iva-notification-head"><strong>Уведомления</strong><button id="iva-notification-readall" type="button">Прочитать все</button></div><div id="iva-notification-list"></div>';
+  panel.innerHTML = '<div id="iva-notification-head"><strong>Уведомления Ивы</strong><button id="iva-notification-readall" type="button">Прочитать все</button></div><div id="iva-notification-list"></div>';
   document.body.append(button, panel);
 
   const badge = button.querySelector('#iva-notification-badge');
   const list = panel.querySelector('#iva-notification-list');
   const readAll = panel.querySelector('#iva-notification-readall');
 
+  const urlReport = () => new URL(location.href).searchParams.get('iva_report') || '';
+  // Keep the Telegram destination through LibreChat's sign-in redirect.
+  if (urlReport()) sessionStorage.setItem('iva-report-to-open', urlReport());
+  const requestedReport = () => urlReport() || sessionStorage.getItem('iva-report-to-open') || '';
+
   const rememberAuthorization = (value) => {
     if (typeof value !== "string" || !/^Bearer\s+\S+$/i.test(value)) return;
     const changed = authorization !== value;
     authorization = value;
     button.hidden = false;
-    if (changed) void refresh(false);
+    if (changed) { void refresh(false); if (requestedReport() && !openingReport) void openReport(requestedReport()); }
   };
   window.addEventListener("tokenUpdated", (event) => {
     if (event && typeof event.detail === "string") {
       rememberAuthorization("Bearer " + event.detail);
+    } else {
+      authorization = ''; items = []; unreadCount = 0; expandedBodies.clear(); render();
     }
   });
   const xhrOpen = XMLHttpRequest.prototype.open;
@@ -83,14 +93,36 @@ export const notificationClientScript = String.raw`
     return xhrSetRequestHeader.apply(this, arguments);
   };
 
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = async (input, options) => {
+    try {
+      const target = new URL(typeof input === 'string' || input instanceof URL ? input : input.url, location.href);
+      if (target.origin === location.origin && target.pathname.startsWith('/api/') && !target.pathname.startsWith('/api/iva/notifications')) {
+        const headers = new Headers(options && options.headers || (input instanceof Request ? input.headers : undefined));
+        rememberAuthorization(headers.get('Authorization'));
+      }
+    } catch {}
+    return originalFetch(input, options);
+  };
+  const bootstrapAuthorization = async () => {
+    if (authorization) return;
+    try {
+      const response = await originalFetch(location.origin + '/api/auth/refresh', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' } });
+      if (!response.ok) return;
+      const session = await response.json();
+      if (!authorization && typeof session.token === 'string') rememberAuthorization('Bearer ' + session.token);
+    } catch {}
+  };
+
   const request = async (path = "", options) => {
-    if (!authorization) throw new Error("notification auth is not ready");
+    if (!authorization) throw new Error("Войди в LibreChat, чтобы открыть входящие Ивы.");
     const response = await fetch(api + path, {
       cache: "no-store",
       ...options,
       headers: { ...(options && options.headers), Authorization: authorization },
     });
-    if (!response.ok) throw new Error("notification API " + response.status);
+    if (response.status === 401 || response.status === 403) { items = []; unreadCount = 0; render(); }
+    if (!response.ok) throw new Error(response.status === 403 ? 'Для этой учётной записи входящие Ивы не разрешены. Обратись к администратору.' : response.status === 410 ? 'Этот чат отчёта был удалён.' : 'Не удалось загрузить данные. Попробуй ещё раз.');
     return response.json();
   };
   const formatTime = (value) => {
@@ -98,7 +130,7 @@ export const notificationClientScript = String.raw`
     catch { return value; }
   };
   const render = () => {
-    const unread = items.filter((item) => !item.readAt).length;
+    const unread = unreadCount;
     badge.textContent = unread > 99 ? '99+' : String(unread);
     badge.style.display = unread ? 'block' : 'none';
     list.replaceChildren();
@@ -114,6 +146,7 @@ export const notificationClientScript = String.raw`
       row.type = 'button';
       row.className = 'iva-notification';
       row.dataset.unread = String(!item.readAt);
+      row.dataset.id = item.id;
       const heading = document.createElement('div');
       heading.className = 'iva-notification-title';
       if (!item.readAt) {
@@ -126,25 +159,75 @@ export const notificationClientScript = String.raw`
       heading.appendChild(title);
       const body = document.createElement('div');
       body.className = 'iva-notification-body';
-      body.textContent = item.body;
+      body.textContent = expandedBodies.get(item.id) || item.body;
       const time = document.createElement('div');
       time.className = 'iva-notification-time';
       time.textContent = formatTime(item.createdAt);
       row.append(heading, body, time);
-      row.addEventListener('click', async () => {
-        if (!item.readAt) {
-          await request('/' + encodeURIComponent(item.id) + '/read', { method: 'POST' });
-          item.readAt = new Date().toISOString();
-          render();
-        }
-      });
+      row.addEventListener('click', () => void openNotification(item));
       list.appendChild(row);
     }
+    if (hasMore) {
+      const more = document.createElement('button');
+      more.type = 'button';
+      more.className = 'iva-notification';
+      more.textContent = 'Показать ещё';
+      more.addEventListener('click', async () => {
+        more.disabled = true;
+        try {
+          const page = await request('?offset=' + items.length);
+          const existing = new Set(items.map((item) => item.id));
+          items.push(...page.notifications.filter((item) => !existing.has(item.id)));
+          hasMore = page.hasMore;
+          render();
+        } catch (error) { more.textContent = error.message; more.disabled = false; }
+      });
+      list.appendChild(more);
+    }
+  };
+
+  let openingReport = false;
+  const showError = (error) => {
+    open = true; panel.dataset.open = 'true';
+    const failure = document.createElement('div');
+    failure.id = 'iva-notification-empty'; failure.textContent = error.message;
+    list.prepend(failure);
+  };
+  const openReport = async (id) => {
+    if (openingReport) return;
+    openingReport = true;
+    try {
+      const chat = await request('/' + encodeURIComponent(id) + '/chat');
+      await request('/' + encodeURIComponent(id) + '/read', { method: 'POST' });
+      sessionStorage.removeItem('iva-report-to-open');
+      location.assign('/c/' + encodeURIComponent(chat.conversationId));
+    } catch (error) { showError(error); }
+    finally { openingReport = false; }
+  };
+  const openNotification = async (item) => {
+    if (item.kind === 'report') return openReport(item.id);
+    try {
+      const data = await request('/' + encodeURIComponent(item.id));
+      expandedBodies.set(item.id, data.notification.body);
+      // Reminders and alerts stay here as full plain text, without another composer.
+      const selected = list.querySelector('[data-id="' + item.id + '"]');
+      if (selected) selected.querySelector('.iva-notification-body').textContent = data.notification.body;
+      await request('/' + encodeURIComponent(item.id) + '/read', { method: 'POST' });
+      if (!item.readAt) unreadCount = Math.max(0, unreadCount - 1);
+      item.readAt = new Date().toISOString();
+      badge.textContent = String(unreadCount); badge.style.display = unreadCount ? 'block' : 'none';
+      if (selected) selected.dataset.unread = 'false';
+    } catch (error) { showError(error); }
   };
   const refresh = async (announce = true) => {
     try {
       const payload = await request();
-      items = Array.isArray(payload.notifications) ? payload.notifications : [];
+      const fresh = Array.isArray(payload.notifications) ? payload.notifications : [];
+      // Keep older loaded pages when polling for new arrivals.
+      const freshIds = new Set(fresh.map((item) => item.id));
+      items = [...fresh, ...items.filter((item) => !freshIds.has(item.id))];
+      unreadCount = payload.unread || 0;
+      hasMore = payload.hasMore && (items.length <= fresh.length || hasMore);
       const previous = localStorage.getItem(seenKey) || '';
       const newest = items.reduce((max, item) => item.createdAt > max ? item.createdAt : max, previous);
       if (announce && previous && 'Notification' in window && Notification.permission === 'granted') {
@@ -156,6 +239,11 @@ export const notificationClientScript = String.raw`
       render();
     } catch (error) {
       console.warn('[iva-notifications]', error);
+      list.replaceChildren();
+      const failure = document.createElement('div');
+      failure.id = 'iva-notification-empty';
+      failure.textContent = error.message;
+      list.appendChild(failure);
     }
   };
 
@@ -171,12 +259,14 @@ export const notificationClientScript = String.raw`
     await request('/read-all', { method: 'POST' });
     const at = new Date().toISOString();
     for (const item of items) item.readAt ||= at;
+    unreadCount = 0;
     render();
   });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') void refresh();
   });
   void refresh(false);
+  setTimeout(() => void bootstrapAuthorization(), 1000);
   setInterval(() => void refresh(), 15000);
 })();
 `;

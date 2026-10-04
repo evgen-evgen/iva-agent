@@ -5,6 +5,7 @@ import { createNotifyCommand } from "./notify.ts";
 import { createPluginCommands } from "./plugin.ts";
 import { createPostCommand } from "./post.ts";
 import { createRemindCommand } from "./remind.ts";
+import { createRunTaskCommand } from "./run-task.ts";
 import { createCliRuntime } from "./runtime.ts";
 import { createServiceCommands } from "./services.ts";
 import { createCliSystemd } from "./systemd.ts";
@@ -61,6 +62,7 @@ export function createCliMain(root: string) {
   const trace = createTraceCommands(runtime);
   const cmdNotify = createNotifyCommand(runtime);
   const cmdRemind = createRemindCommand(runtime);
+  const cmdRunTask = createRunTaskCommand(runtime);
   const cmdPost = createPostCommand(runtime);
   const legacyUpdate = createUpdateCommand({
     runtime,
@@ -106,6 +108,7 @@ ${C.b}Commands:${C.x}
   ${C.c}iva trace${C.x} <cmd>      the turn journal: tail|show [turn]|open
   ${C.c}iva notify${C.x} <text>    send one Telegram message verbatim
   ${C.c}iva remind${C.x} <text>    let the agent judge one Reminder, then send it to Telegram
+  ${C.c}iva run-task${C.x} <text>  execute an assignment, archive its report and notify Telegram
   ${C.c}iva post${C.x} --md-file <p>  rich Telegram post to the notification chat or an allowlisted --chat
   ${C.c}iva userbot${C.x} [creds|setup|status|diagnose --json|off]  personal-account userbot proxy
   ${C.c}iva logs${C.x} [poll]     agent logs (or the Telegram bridge) -f
@@ -131,6 +134,7 @@ ${C.b}Commands:${C.x}
     usage: account.cmdUsage,
     notify: cmdNotify,
     remind: cmdRemind,
+    "run-task": cmdRunTask,
     post: cmdPost,
     start: services.cmdStart,
     stop: services.cmdStop,

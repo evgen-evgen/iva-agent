@@ -609,3 +609,36 @@ test("the recovery CLI reports resolve failures as JSON", (t) => {
   });
   assert.equal(result.stderr, "");
 });
+
+test("runtime snapshots change when uncommitted source files change or new tools appear", (t) => {
+  const { root, dataDir, base } = fixture(t);
+  const first = materializeCustomLayer({ root, dataDir, targetRevision: base });
+  commitCustomLayer(first);
+  write(root, "agent/tools/new-tool.ts", "export default 'new';\n");
+  const second = materializeCustomLayer({
+    root,
+    dataDir,
+    targetRevision: base,
+  });
+  assert.notEqual(second.runtimeRoot, first.runtimeRoot);
+  assert.equal(
+    readFileSync(join(second.runtimeRoot, "agent/tools/new-tool.ts"), "utf8"),
+    "export default 'new';\n",
+  );
+  commitCustomLayer(second);
+  write(
+    root,
+    "scripts/lib/runtime-dependency.ts",
+    'export const runtimeValue = "updated";\n',
+  );
+  const third = materializeCustomLayer({ root, dataDir, targetRevision: base });
+  assert.notEqual(third.runtimeRoot, second.runtimeRoot);
+  assert.match(
+    readFileSync(
+      join(third.runtimeRoot, "scripts/lib/runtime-dependency.ts"),
+      "utf8",
+    ),
+    /updated/u,
+  );
+  commitCustomLayer(third);
+});

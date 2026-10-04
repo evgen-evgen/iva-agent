@@ -26,6 +26,7 @@ const runCommand: ReminderCommand = (file, args, options) =>
   });
 
 export type ReminderScheduleInput = {
+  readonly mode?: "reminder" | "task";
   readonly text: string;
   readonly delaySeconds?: number;
   readonly at?: string;
@@ -74,7 +75,8 @@ export async function scheduleReminder(
     );
   }
 
-  const unit = `iva-ceo-reminder-${dependencies.id ?? randomUUID().slice(0, 12)}`;
+  const mode = input.mode ?? "reminder";
+  const unit = `iva-ceo-${mode}-${dependencies.id ?? randomUUID().slice(0, 12)}`;
   const trigger = hasDelay
     ? `--on-active=${String(input.delaySeconds)}s`
     : `--on-calendar=${input.at!.trim()}`;
@@ -90,7 +92,7 @@ export async function scheduleReminder(
       node,
       `--env-file=${envFile}`,
       cli,
-      "remind",
+      mode === "task" ? "run-task" : "remind",
       text,
     ],
     { cwd: root },

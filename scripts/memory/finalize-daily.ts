@@ -31,6 +31,16 @@ interface FinalizeDailyMemoryOptions extends MemoryCommandOptions {
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const AUTOGRAPH = join(ROOT, "scripts", "autograph");
 
+export function hasDailyTranscript(vault: string, date: string): boolean {
+  try {
+    readFileSync(join(vault, "daily", `${date}.md`), "utf8");
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+}
+
 function defaultRunner(
   command: string,
   args: string[],

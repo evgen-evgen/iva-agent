@@ -91,8 +91,38 @@ For this checkout, run CLI delivery commands as `npm run iva -- notify "text"` o
 `npm run iva -- remind "text"`. The npm command loads this checkout's `.env`; do not use a
 global `iva` shim until you have verified which installation it points to.
 
-LibreChat shows Iva's bell in the top-right corner and checks the durable inbox every 15
-seconds. Unread items survive a closed browser and appear when LibreChat is opened again.
+Reports appear as ordinary LibreChat conversations in the native project **Входящие Ивы**.
+Each permitted account owns its own project and conversations. The report is the first
+assistant message; existing report discussions are imported as the following message
+chain. Continue using LibreChat's standard composer. Iva seeds a fresh runtime session
+from the stored chat history, so the first question already has the report as context.
+
+The bell in the top-right corner is for notifications and simple reminders. Selecting a
+report navigates to its normal `/c/<conversationId>` chat. Selecting a reminder expands
+its full text inside the bell without creating a conversation or a second composer.
+The bell polls every 15 seconds, loads 50 notifications at a time and offers **Show more**.
+Read state is tracked per account and survives a closed browser.
+
+Report creation calls LibreChat's server-only synchronization hook, so native chats also
+appear while the browser is closed. Authenticated inbox reads retry imports if LibreChat
+was unavailable. Rebuild/recreate only the `librechat` service after changing the native
+integration. Its `LIBRECHAT_NOTIFICATION_USERS` must match Iva's allowed reader list.
+Imports are idempotent and retain original Markdown, images and discussion timestamps;
+subsequent polling respects user renames, project moves, archives and chat deletion.
+The old archive and `data/report-discussions/` files remain intact as migration sources.
+
+Set `LIBRECHAT_PUBLIC_URL` in Iva's `.env` to the browser-accessible HTTP(S) address of
+LibreChat (the same address used by its container). Scheduled reports send a short
+Telegram notice with **Open in Libre** and **Show here** buttons. The morning digest says
+the report and plan are ready. The first button resolves `?iva_report=<id>` to the signed-in account's native chat;
+the second retrieves the saved report without regenerating it. Telegram users must be
+allowlisted and use a private chat to retrieve reports. Reminders and operational alerts
+retain their existing delivery. Without a configured public URL the report is saved, but
+Telegram delivery is marked failed with a configuration error; no guessed localhost link
+is sent. Without Telegram configuration the morning digest still runs and saves to Libre.
+Telegram's **Show here** retrieves the report; replies in Telegram continue in the normal
+Telegram conversation, rather than the report conversation in LibreChat.
+
 Clicking the bell once also offers browser notifications; those can appear only while the
 LibreChat page is open. Telegram remains the reliable push channel while the browser is
 closed.
@@ -105,3 +135,41 @@ docker compose stop librechat librechat-mongodb
 
 The named volumes retain accounts and conversations. Removing those volumes deletes the
 corresponding LibreChat data.
+
+## Delayed assignments versus reminders
+
+Use `schedule_task` when the owner asks Iva to perform work later, such as research,
+searching for vehicles, or preparing a report. The timer runs this checkout's
+`iva run-task`, executes the assignment with tools, archives the final report and sends
+Telegram's ready buttons. An execution error creates an actionable alert rather than a
+reminder claiming success. `TASK_TURN_TIMEOUT_MS` bounds execution (default: ten minutes).
+
+Use `schedule_reminder` only when the owner asks to be reminded to do something themselves.
+It runs `iva remind` and retains the existing reminder behavior. Never promise that a
+reminder will execute an assignment.
+
+The inbox is account-restricted. Include every intended reader's email in
+`LIBRECHAT_NOTIFICATION_USERS` and restart Iva after changing it. The UI now displays an
+explicit access error for other accounts and restores authentication when its loader runs
+after LibreChat's sign-in event. Refresh the browser after deploying UI changes.
+
+For a CEO installation alongside other Ivas, use `deploy/iva-ceo-runtime.service` and
+`deploy/iva-ceo-telegram-poll.service`, replacing `__PROJECT_DIR__` with the absolute project
+path and `__NODE__` with the absolute Node 24 executable before installing them as user
+units. These use distinct names; do not use the generic `iva restart` command when
+`iva.service` belongs to another installation. Stop any foreground CEO processes before
+starting the corresponding services. Restart only these units after rebuilding:
+
+```bash
+systemctl --user restart iva-ceo-runtime.service iva-ceo-telegram-poll.service
+```
+
+Then open LibreChat, check the inbox under the intended account, and schedule a small
+assignment such as a calculation. Verify the original instruction selected `schedule_task`,
+the saved notification is a `report`, Telegram received its buttons, and a question under
+the report persists after reopening. The source snapshot cache also includes actual file
+contents, so a development rebuild without a new Git commit picks up new tools.
+
+The daily memory rollup skips a day with no source transcript before starting a model
+turn. It does not invent a summary or advance the vault's last processed day. Unreadable
+input and failures on days that have source records still fail visibly.

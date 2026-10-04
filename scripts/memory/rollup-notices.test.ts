@@ -40,12 +40,13 @@ test("what leaves the chat is decided by the policy, not by the script", () => {
   assert.match(block, /settings,/u);
   assert.match(block, /ranBefore: RAN_BEFORE,/u);
   // Оба шва отправки отчёта — только аргументы этого решения; своей отправки у свёртки нет.
-  assert.equal(block.split("sendTelegramHtml(").length - 1, 2);
+  assert.equal(block.split("sendTelegramHtml(").length - 1, 1);
+  assert.equal(block.split("sendReportReady(").length - 1, 1);
   // Четвёртый аргумент — только имя хода для журнала (ADR-0010): что уходит в чат, он
   // не решает. Сама отправка остаётся тем же одним швом.
   assert.match(
     block,
-    /report: \(text: string\) =>\s+sendTelegramHtml\(BOT, DIAGNOSTIC_CHAT, text, \{\s+trace: \{ session: session\.state\.sessionId, source: "rollup" \},/u,
+    /report: \(\) =>\s+notification\s+\? sendReportReady\(BOT, DIAGNOSTIC_CHAT, notification, \{\s+trace: \{ session: session\.state\.sessionId, source: "rollup" \},/u,
   );
   assert.match(
     block,
@@ -66,7 +67,8 @@ test("the CORE alert goes out through the throttle, not straight to the chat", (
   assert.match(seam, /sendTelegramHtml\(BOT, DIAGNOSTIC_CHAT, message,/u);
   assert.equal(seam.split("sendTelegramHtml(").length - 1, 1);
   // Больше отправок в файле нет: два шва отчёта и один шов алерта.
-  assert.equal(source.split("sendTelegramHtml(").length - 1, 3);
+  assert.equal(source.split("sendTelegramHtml(").length - 1, 2);
+  assert.equal(source.split("sendReportReady(").length - 1, 1);
 });
 
 test("the run reads the traces of past runs before it leaves its own", () => {
@@ -92,7 +94,7 @@ test("the delivery half of the prompt is the one that carries the language", () 
   assert.match(source, /no H1\/H2 headings/u);
 });
 
-test("the red line in the instructions exempts both scheduled senders", () => {
+test("the red line in the instructions exempts all scheduled senders", () => {
   // Красный блок системных инструкций говорит, что отчёт — обычный ответ хода: отправку
   // делает код Outbox. В плановых ходах отправку тоже делает код, но другой, и без явного
   // исключения модель считает своим ответом уже отправленный текст — владелец получает
@@ -115,7 +117,7 @@ test("the red line in the instructions exempts both scheduled senders", () => {
   // например во фразе «дайджест из чата — обычный ход» — этому не удовлетворяет.
   assert.match(
     exception,
-    /There are two:[^.]*rollup[^.]*morning\s+digest/u,
-    "the exception itself must name the nightly rollup and the scheduled digest",
+    /scheduled turns[^.]*rollup[^.]*morning\s+digest[^.]*iva run-task/u,
+    "the exception itself must name the rollup, scheduled digest and delayed assignments",
   );
 });

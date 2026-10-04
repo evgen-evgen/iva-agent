@@ -1,0 +1,15 @@
+[Unit]
+Description=Iva CEO Telegram polling bridge
+After=network-online.target iva-ceo-runtime.service
+Wants=iva-ceo-runtime.service
+
+[Service]
+Type=simple
+WorkingDirectory=__PROJECT_DIR__
+ExecStart=__NODE__ --env-file=__PROJECT_DIR__/.env __PROJECT_DIR__/scripts/telegram-poll.mjs
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

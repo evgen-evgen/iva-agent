@@ -10,10 +10,27 @@ import {
   openWebUiAgentMessage,
   openWebUiContinuation,
   openWebUiIdentity,
+  openWebUiHistory,
   parseOpenAiChatRequest,
 } from "./open-webui.ts";
 
-test("creates LibreChat titles locally without treating ordinary prompts as titles", () => {
+void test("fresh native report chats carry the report and prior discussion without replaying the question or system messages", () => {
+  const history = openWebUiHistory({
+    messages: [
+      { role: "system", content: "Private service prompt" },
+      { role: "assistant", content: "Отчёт: 323" },
+      { role: "user", content: "Почему?" },
+      { role: "assistant", content: [{ type: "text", text: "17 × (20 − 1)" }] },
+      { role: "user", content: "Объясни подробнее" },
+    ],
+  });
+  assert.match(history[0], /Отчёт: 323/u);
+  assert.match(history[0], /Почему\?/u);
+  assert.match(history[0], /17 × \(20 − 1\)/u);
+  assert.doesNotMatch(history[0], /Private service prompt|Объясни подробнее/u);
+});
+
+void test("creates LibreChat titles locally without treating ordinary prompts as titles", () => {
   assert.equal(
     libreChatTitle(
       "__IVA_LIBRECHAT_TITLE__\nUser: как связать Telegram и LibreChat с общей памятью?\nAI: Хорошо.",
@@ -27,7 +44,7 @@ test("creates LibreChat titles locally without treating ordinary prompts as titl
   );
 });
 
-test("puts attachment context into the actual custom-channel message", () => {
+void test("puts attachment context into the actual custom-channel message", () => {
   assert.equal(openWebUiAgentMessage("что это?", []), "что это?");
   assert.equal(
     openWebUiAgentMessage("что это?", [
@@ -39,7 +56,7 @@ test("puts attachment context into the actual custom-channel message", () => {
   );
 });
 
-test("extracts only the latest user text from an OpenAI chat request", () => {
+void test("extracts only the latest user text from an OpenAI chat request", () => {
   assert.deepEqual(
     parseOpenAiChatRequest({
       model: "iva",
@@ -74,7 +91,7 @@ test("extracts only the latest user text from an OpenAI chat request", () => {
   );
 });
 
-test("decodes LibreChat document and audio content parts", () => {
+void test("decodes LibreChat document and audio content parts", () => {
   const parsed = parseOpenAiChatRequest({
     model: "iva",
     messages: [
@@ -120,7 +137,7 @@ test("decodes LibreChat document and audio content parts", () => {
   );
 });
 
-test("rejects remote and oversized attachment payloads instead of dropping them", () => {
+void test("rejects remote and oversized attachment payloads instead of dropping them", () => {
   assert.throws(
     () =>
       parseOpenAiChatRequest({
@@ -141,7 +158,7 @@ test("rejects remote and oversized attachment payloads instead of dropping them"
   );
 });
 
-test("requires forwarded Open WebUI conversation identity", () => {
+void test("requires forwarded Open WebUI conversation identity", () => {
   const headers = new Headers({
     "x-openwebui-chat-id": "chat-a",
     "x-openwebui-user-id": "user-a",
@@ -156,7 +173,7 @@ test("requires forwarded Open WebUI conversation identity", () => {
   assert.throws(() => openWebUiIdentity(new Headers()), /identity headers/u);
 });
 
-test("authenticates the adapter with a dedicated bearer", () => {
+void test("authenticates the adapter with a dedicated bearer", () => {
   const request = new Request("http://iva.test/v1/models", {
     headers: { authorization: "Bearer bridge-secret" },
   });
@@ -165,14 +182,14 @@ test("authenticates the adapter with a dedicated bearer", () => {
   assert.equal(authorizedOpenWebUiRequest(request, ""), false);
 });
 
-test("emits a complete OpenAI-compatible SSE response", () => {
+void test("emits a complete OpenAI-compatible SSE response", () => {
   const stream = openAiCompletionStream("hello");
   assert.match(stream, /chat\.completion\.chunk/u);
   assert.match(stream, /"content":"hello"/u);
   assert.ok(stream.endsWith("data: [DONE]\n\n"));
 });
 
-test("emits incremental chunks with one completion id", () => {
+void test("emits incremental chunks with one completion id", () => {
   const state = { id: "chatcmpl-test", created: 1, model: "iva" };
   const stream =
     openAiStreamChunk(state, "", { role: true }) +
@@ -188,7 +205,7 @@ test("emits incremental chunks with one completion id", () => {
   assert.ok(stream.endsWith("data: [DONE]\n\n"));
 });
 
-test("splits coalesced stream events without changing their text", () => {
+void test("splits coalesced stream events without changing their text", () => {
   const text =
     "Первый длинный фрагмент ответа 🙂 и его продолжение без потерь.";
   const pieces = openAiStreamPieces(text, 16);

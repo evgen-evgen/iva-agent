@@ -48,13 +48,18 @@ import {
   sentNotBeforeIso,
 } from "../lib/rollup-stale-cursor.ts";
 import { sendTelegramHtml } from "../lib/telegram-send.ts";
+import { sendReportReady } from "../lib/report-delivery.ts";
 import { retireMemoryEvalSession } from "../lib/eval-session.ts";
 import {
   resolveDailyTargetDate,
   resolveRollupPromptDate,
   shiftIsoDate,
 } from "./rollup-target-date.ts";
-import { finalizeDailyMemory, prepareDailyMemory } from "./finalize-daily.ts";
+import {
+  finalizeDailyMemory,
+  hasDailyTranscript,
+  prepareDailyMemory,
+} from "./finalize-daily.ts";
 
 type Period = "daily" | "weekly" | "monthly" | "yearly";
 
@@ -390,6 +395,10 @@ try {
 }
 if (period === "daily") {
   try {
+    if (!hasDailyTranscript(VAULT, completedDay)) {
+      console.log(`rollup daily (${completedDay}): no source transcript; skipped`);
+      process.exit(0);
+    }
     prepareDailyMemory({ vault: VAULT });
   } catch (error) {
     console.error(
@@ -672,10 +681,16 @@ if (REPORTS_TO_TELEGRAM[period]) {
           // Ночной ход зовётся своим именем в журнале хода (ADR-0010): без источника
           // вьюер прочитал бы rollup как разговор в Telegram. Сессия — сквозная,
           // по ней читатель сшивает весь ночной ход.
-          report: (text: string) =>
-            sendTelegramHtml(BOT, DIAGNOSTIC_CHAT, text, {
-              trace: { session: session.state.sessionId, source: "rollup" },
-            }),
+          report: () =>
+            notification
+              ? sendReportReady(BOT, DIAGNOSTIC_CHAT, notification, {
+                  trace: { session: session.state.sessionId, source: "rollup" },
+                })
+              : Promise.resolve({
+                  ok: false,
+                  fellBack: false,
+                  error: "report was not archived",
+                }),
           notice: (text: string) =>
             sendTelegramHtml(BOT, DIAGNOSTIC_CHAT, text, {
               trace: { session: session.state.sessionId, source: "rollup" },

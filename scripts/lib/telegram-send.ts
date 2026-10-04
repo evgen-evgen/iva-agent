@@ -34,6 +34,7 @@ type PostAck = OutboxAck & {
 };
 
 export type TelegramSendOptions = {
+  readonly replyMarkup?: Record<string, unknown>;
   readonly caption?: boolean;
   readonly retryTransient?: boolean;
   readonly sleep?: Sleep;
@@ -201,6 +202,7 @@ export async function sendTelegramHtml(
     sleep = realSleep,
     fetchImpl = fetch,
     trace,
+    replyMarkup,
   }: TelegramSendOptions = {},
 ): Promise<{ ok: boolean; fellBack: boolean; error: string }> {
   if (!telegramEnabled())
@@ -208,7 +210,7 @@ export async function sendTelegramHtml(
   const transport = messageTransport(
     chat,
     poster(bot, retryTransient, fetchImpl, sleep),
-    {},
+    replyMarkup ? { reply_markup: replyMarkup } : {},
   );
   try {
     const { ok, delivered, fellBack, error } = await traceOutbox(

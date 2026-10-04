@@ -14,6 +14,7 @@ import {
   appendDailyProcessingMarker,
   ensureDailySummaryFrontmatter,
   finalizeDailyMemory,
+  hasDailyTranscript,
   prepareDailyMemory,
   type FinalizerCommandRunner,
 } from "./finalize-daily.ts";
@@ -39,6 +40,14 @@ function fixture(date = "2026-09-10"): string {
 
 after(() => {
   for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+});
+
+test("daily input distinguishes an absent day from a readable transcript and invalid input", () => {
+  const vault = fixture();
+  assert.equal(hasDailyTranscript(vault, "2026-09-10"), true);
+  assert.equal(hasDailyTranscript(vault, "2026-09-11"), false);
+  mkdirSync(join(vault, "daily", "2026-09-12.md"));
+  assert.throws(() => hasDailyTranscript(vault, "2026-09-12"));
 });
 
 test("prepare step deterministically creates the supersede input", () => {

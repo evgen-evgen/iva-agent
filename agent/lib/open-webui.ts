@@ -106,7 +106,11 @@ function messageContent(content: unknown): {
       if (typeof format !== "string")
         throw new Error("audio format is required");
       attachments.push({
-        bytes: decodeBase64(String(part.input_audio.data ?? "")),
+        bytes: decodeBase64(
+          typeof part.input_audio.data === "string"
+            ? part.input_audio.data
+            : "",
+        ),
         filename: `voice.${format.toLowerCase()}`,
         kind: "audio",
         mediaType: audioMediaType(format),
@@ -145,6 +149,52 @@ function messageContent(content: unknown): {
   return { attachments, text: texts.join("\n") };
 }
 
+export function openWebUiHistory(value: unknown): string[] {
+  if (!isRecord(value) || !Array.isArray(value.messages)) return [];
+  const messages: unknown[] = value.messages;
+  let lastUser = -1;
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (isRecord(message) && message.role === "user") {
+      lastUser = index;
+      break;
+    }
+  }
+  if (lastUser < 0) return [];
+  const history = messages.slice(0, lastUser).flatMap((message: unknown) => {
+    if (
+      !isRecord(message) ||
+      !["user", "assistant"].includes(String(message.role))
+    )
+      return [];
+    // Historic attachments are already part of the conversation; do not re-download
+    // or transcribe them. Only stored text seeds a fresh runtime session.
+    const text =
+      typeof message.content === "string"
+        ? message.content
+        : Array.isArray(message.content)
+          ? message.content
+              .filter(
+                (part: unknown) =>
+                  isRecord(part) &&
+                  part.type === "text" &&
+                  typeof part.text === "string",
+              )
+              .map((part: OpenAiTextPart) => part.text)
+              .join("\n")
+          : "";
+    return text.trim()
+      ? [`${message.role === "assistant" ? "Ива" : "Пользователь"}: ${text}`]
+      : [];
+  });
+  return history.length
+    ? [
+        "История этого чата (контекст предыдущих сообщений):\n" +
+          history.join("\n\n"),
+      ]
+    : [];
+}
+
 export function parseOpenAiChatRequest(value: unknown): {
   attachments: OpenAiAttachment[];
   model: string;
@@ -158,7 +208,7 @@ export function parseOpenAiChatRequest(value: unknown): {
   }
   if (!Array.isArray(body.messages)) throw new Error("messages are required");
   for (let index = body.messages.length - 1; index >= 0; index--) {
-    const message = body.messages[index];
+    const message: unknown = body.messages[index];
     if (!isRecord(message) || message.role !== "user") continue;
     const content = messageContent(message.content);
     const prompt = content.text.trim();

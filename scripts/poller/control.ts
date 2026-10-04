@@ -49,6 +49,11 @@ import {
 import { createMenu } from "../lib/menu/index.ts";
 import { admitTelegramUpdate } from "./inbox.ts";
 import { isPrivateTelegramChat } from "#lib/telegram-private-chat.ts";
+import {
+  handleTelegramReportCallback,
+  REPORT_CALLBACK_PREFIX,
+} from "#lib/telegram-report.ts";
+import { sendTelegramHtml } from "../lib/telegram-send.ts";
 
 type ControlCallbackQuery = TelegramCallbackQuery & { data: string };
 type PendingFlow = {
@@ -378,6 +383,7 @@ async function handleControl(
     const callback = cq;
     const updateCallback = parseUpdateCallbackData(callback.data);
     const isLocalCallback =
+      callback.data.startsWith(REPORT_CALLBACK_PREFIX) ||
       callback.data === TELEGRAM_STOP_CALLBACK ||
       updateCallback !== null ||
       callback.data.startsWith("iva_model:") ||
@@ -385,6 +391,19 @@ async function handleControl(
       callback.data.startsWith("iva_menu:");
     const callbackFrom = String(callback.from?.id ?? "");
     const callbackAllowed = ALLOWED.size > 0 && ALLOWED.has(callbackFrom);
+    if (callback.data.startsWith(REPORT_CALLBACK_PREFIX)) {
+      return handleTelegramReportCallback(callback, {
+        ack: (text) => ackImpl(callback.id, text),
+        send: async (chat, body) =>
+          (
+            await sendTelegramHtml(
+              process.env.TELEGRAM_BOT_TOKEN ?? "",
+              chat,
+              body,
+            )
+          ).ok,
+      });
+    }
     if (
       isLocalCallback &&
       callbackAllowed &&

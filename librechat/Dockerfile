@@ -3,6 +3,7 @@ FROM registry.librechat.ai/danny-avila/librechat-dev:latest
 ARG IVA_PORT=8723
 
 COPY iva-notifications-route.js /app/api/server/routes/iva-notifications.js
+COPY iva-report-chats.cjs /app/api/server/routes/iva-report-chats.js
 RUN sed -i "1i const ivaNotifications = require('./iva-notifications');" /app/api/server/routes/index.js \
   && sed -i "/module.exports = {/a\\  ivaNotifications," /app/api/server/routes/index.js \
   && sed -i "/app.use('\/api\/user'/i\\  app.use('/api/iva/notifications', routes.ivaNotifications);" /app/api/server/index.js

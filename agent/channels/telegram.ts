@@ -46,6 +46,7 @@ import {
   TELEGRAM_CANCEL_ROUTE,
 } from "../lib/telegram-cancel-route.js";
 import { handleTelegramStopCallback } from "../lib/telegram-stop.js";
+import { handleTelegramReportCallback } from "../lib/telegram-report.js";
 // Eve отдаёт обработчикам событий токен с именем канала впереди, а reset-роут клеит его
 // сам. Сохраняем только channel-local вид, иначе /new сбрасывает несуществующий токен (#110).
 import { toChannelLocalToken } from "../lib/telegram-continuation-token.js";
@@ -186,6 +187,14 @@ const telegram = telegramChannel({
         /* протухший callback_query_id Telegram отвергает штатно */
       }
     };
+    if (
+      await handleTelegramReportCallback(query, {
+        ack,
+        send: async (_chat, body) =>
+          (await sendThroughOutbox(body, outboxTransport(ctx.telegram))).ok,
+      })
+    )
+      return;
     if (query.data !== TELEGRAM_STOP_CALLBACK) {
       await ack();
       return;

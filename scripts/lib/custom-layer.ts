@@ -8,6 +8,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readlinkSync,
   readdirSync,
   renameSync,
   rmSync,
@@ -555,12 +556,29 @@ export function materializeCustomLayer({
       )}\n`,
     );
   }
-  const runtimeDigest = createHash("sha256")
-    .update("runtime-layout-v3")
+  const runtimeHash = createHash("sha256")
+    .update("runtime-layout-v4")
     .update(targetRevision)
-    .update(JSON.stringify(manifest.entries))
-    .digest("hex")
-    .slice(0, 16);
+    .update(JSON.stringify(manifest.entries));
+  // Development checkouts can change without a new commit. The snapshot must
+  // match the actual sources used by the build, not just HEAD/customizations.
+  const hashTree = (directory: string, relative: string): void => {
+    for (const name of readdirSync(directory).sort()) {
+      const file = join(directory, name);
+      const key = `${relative}/${name}`;
+      const stat = lstatSync(file);
+      runtimeHash.update(key).update("\0");
+      if (stat.isDirectory()) hashTree(file, key);
+      else if (stat.isSymbolicLink()) runtimeHash.update(readlinkSync(file));
+      else if (stat.isFile()) runtimeHash.update(readFileSync(file));
+      runtimeHash.update("\0");
+    }
+  };
+  for (const tree of RUNTIME_SOURCE_TREES) {
+    const source = join(root, tree);
+    if (existsSync(source)) hashTree(source, tree);
+  }
+  const runtimeDigest = runtimeHash.digest("hex").slice(0, 16);
   const runtimes = join(custom, "runtimes");
   const runtimeRoot = join(
     runtimes,

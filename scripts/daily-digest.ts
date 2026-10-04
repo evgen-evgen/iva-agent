@@ -5,7 +5,7 @@
 import { Client } from "eve/client";
 import { tr } from "#lib/i18n.ts";
 import { writtenInLanguage } from "./lib/notice-policy.ts";
-import { sendTelegramHtml } from "./lib/telegram-send.ts";
+import { sendReportReady } from "./lib/report-delivery.ts";
 import { telegramEnabled } from "#lib/feature-flags.ts";
 import {
   createNotification,
@@ -17,18 +17,6 @@ const HOST = process.env.ASSISTANT_HOST ?? `http://127.0.0.1:${PORT}`;
 const BOT = process.env.TELEGRAM_BOT_TOKEN;
 const CHAT = process.env.TELEGRAM_NOTIFICATION_CHAT_ID;
 const BEARER = process.env.ASSISTANT_BEARER; // needed if the eve channel in prod requires auth
-
-if (!telegramEnabled()) {
-  console.log("digest: Telegram disabled; nothing to send");
-  process.exit(0);
-}
-
-if (!BOT || !CHAT) {
-  console.error(
-    "TELEGRAM_BOT_TOKEN and TELEGRAM_NOTIFICATION_CHAT_ID are required",
-  );
-  process.exit(1);
-}
 
 const client = new Client({
   host: HOST,
@@ -63,7 +51,12 @@ const notification = await createNotification({
   source: "morning-digest",
   title: "Утренний дайджест",
 });
-const r = await sendTelegramHtml(BOT, CHAT, result.message, {
+if (!telegramEnabled() || !BOT || !CHAT) {
+  await setNotificationTelegramDelivery(notification.id, "skipped");
+  console.log("Digest saved for LibreChat; Telegram is not configured.");
+  process.exit(0);
+}
+const r = await sendReportReady(BOT, CHAT, notification, {
   trace: { session: response.sessionId, source: "digest" },
 });
 await setNotificationTelegramDelivery(

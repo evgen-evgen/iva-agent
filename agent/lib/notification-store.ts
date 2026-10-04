@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { dataDir } from "./data-dir.ts";
+import { syncLibreChatReports } from "./librechat-report-sync.ts";
 import {
   acquireLock,
   loadJsonStrict,
@@ -32,7 +33,6 @@ type NotificationFile = {
   readonly notifications: IvaNotification[];
 };
 
-const MAX_NOTIFICATIONS = 500;
 const EMPTY: NotificationFile = { version: 1, notifications: [] };
 
 function paths() {
@@ -49,7 +49,8 @@ async function update(
     const current = await loadJsonStrict<NotificationFile>(file, EMPTY);
     const next = {
       version: 1 as const,
-      notifications: mutate(current.notifications).slice(-MAX_NOTIFICATIONS),
+      // This is also the report archive. Pagination limits the UI, not retention.
+      notifications: mutate(current.notifications),
     };
     await saveJsonAtomic(file, next);
     return next;
@@ -80,16 +81,37 @@ export async function createNotification(input: {
     ...(input.source ? { source: input.source } : {}),
   };
   await update((items) => [...items, notification]);
+  if (notification.kind === "report") await syncLibreChatReports();
   return notification;
 }
 
 export async function listNotifications(
   limit = 100,
+  offset = 0,
 ): Promise<IvaNotification[]> {
   const { file } = paths();
   const current = await loadJsonStrict<NotificationFile>(file, EMPTY);
   const bounded = Math.max(1, Math.min(Math.trunc(limit) || 100, 200));
-  return current.notifications.slice(-bounded).reverse();
+  const start = Math.max(0, Math.trunc(offset) || 0);
+  return current.notifications
+    .slice()
+    .reverse()
+    .slice(start, start + bounded);
+}
+
+export async function getNotification(
+  id: string,
+): Promise<IvaNotification | undefined> {
+  const current = await loadJsonStrict<NotificationFile>(paths().file, EMPTY);
+  return current.notifications.find((item) => item.id === id);
+}
+
+export async function unreadNotificationCount(
+  principalId: string,
+): Promise<number> {
+  const current = await loadJsonStrict<NotificationFile>(paths().file, EMPTY);
+  return current.notifications.filter((item) => !item.readBy?.[principalId])
+    .length;
 }
 
 export async function markNotificationRead(

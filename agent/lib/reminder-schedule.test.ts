@@ -86,3 +86,22 @@ void test("absolute reminders use on-calendar and reject ambiguous input", async
     /ровно одно/u,
   );
 });
+
+void test("scheduled assignments execute run-task in this checkout, never remind", async () => {
+  const calls: readonly string[][] = [];
+  const captured: string[][] = calls as string[][];
+  const run: ReminderCommand = (file, args) => {
+    captured.push([...args]);
+    return Promise.resolve({
+      stdout: file === "systemctl" ? "active\n" : "",
+      stderr: "",
+    });
+  };
+  const result = await scheduleReminder(
+    { text: "Подготовь отчёт", delaySeconds: 10, mode: "task" },
+    { root: ROOT, run, id: "execution" },
+  );
+  assert.equal(result.unit, "iva-ceo-task-execution.timer");
+  assert.ok(captured[0].includes("run-task"));
+  assert.ok(!captured[0].includes("remind"));
+});

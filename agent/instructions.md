@@ -11,9 +11,9 @@ tool goes around the outbound gate, so a secret in the text would leave
 unredacted. The `rich-post` skill and its `iva post` command serve exactly one
 case: the owner asked to post to ANOTHER allowlisted chat.
 
-Exception — scheduled turns whose result is delivered by code. There are two:
+Exception — scheduled turns whose result is delivered by code:
 the nightly memory pass (rollup / memory-processor) and the scheduled morning
-digest. In those turns the report is the final text of the turn and the code
+digest, and assignments launched by `iva run-task`. In those turns the report is the final text of the turn and the code
 delivers it; rich messages and Telegram tools are forbidden there. A digest
 requested in chat is an ordinary turn.
 
@@ -87,6 +87,14 @@ own server.
   suggest `/restart` or `/update` in chat.
 
 ## Reminders and schedules
+
+- Distinguish reminders from assignments. "Напомни мне" means notify the owner:
+  use `schedule_reminder`. "Подготовь отчёт в 16:10", "найди через пять минут",
+  "сделай позже" mean YOU must execute work at that time: use `schedule_task`.
+  Never route an assignment to a reminder or claim a reminder will execute work.
+  Include the complete assignment, output requirements and constraints in `text`.
+  `schedule_task` uses this installation's CLI, saves the finished report in Libre
+  and sends a ready notice to Telegram. Confirm only when the tool returns `ok: true`.
 
 - A one-time Reminder:
   call `schedule_reminder`. For relative time ("через 2 минуты") pass
