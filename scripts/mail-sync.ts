@@ -70,6 +70,7 @@ if (
           sent.ok ? "sent" : "failed",
           sent.ok ? undefined : sent.error,
         );
+        if (!sent.ok) throw new Error("Mail report Telegram delivery failed");
       },
     );
     console.log(JSON.stringify({ ...imported, ...result }));

@@ -134,6 +134,26 @@ export async function finishSource(
     await tx`UPDATE iva_ingestion.jobs SET status='done',analysis_key=${analysisKey},report_id=${reportId ?? null},lease_until=NULL WHERE source_key=${key} AND revision=${revision}`;
   });
 }
+export async function listCompletedSourceReports(
+  provider: string,
+  account: string,
+) {
+  const rows =
+    await sql()`SELECT j.source_key,j.revision,j.report_id FROM iva_ingestion.jobs j
+    JOIN iva_ingestion.sources s ON s.source_key=j.source_key AND s.revision=j.revision
+    WHERE s.provider=${provider} AND s.account=${account} AND j.status='done' AND j.report_id IS NOT NULL`;
+  return rows.map((row) => ({
+    key: String(row.source_key),
+    revision: String(row.revision),
+    reportId: String(row.report_id),
+  }));
+}
+
+export async function retrySourceDelivery(key: string, revision: string) {
+  await sql()`UPDATE iva_ingestion.jobs SET status='pending',lease_until=NULL,next_attempt_at=now()
+    WHERE source_key=${key} AND revision=${revision} AND status='done'`;
+}
+
 export async function readSourceAnalysis(key: string): Promise<unknown> {
   const rows =
     await sql()`SELECT j.analysis_key FROM iva_ingestion.jobs j JOIN iva_ingestion.sources s ON s.source_key=j.source_key AND s.revision=j.revision WHERE s.source_key=${key} AND j.status='done'`;

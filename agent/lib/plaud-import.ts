@@ -15,6 +15,7 @@ import {
   releaseFileLock,
   writeFileAtomic,
 } from "./fs-atomic.ts";
+import { createNotification } from "./notification-store.ts";
 
 export type PlaudCall = (
   name: string,
@@ -289,31 +290,45 @@ export async function finishPlaud(
       );
     const dir = join(root, key);
     const processed = await readOptional(join(dir, "processed.json"));
-    if (
-      processed !== undefined &&
-      object.parse(processed).revision === revision
-    ) {
-      if (ingestionConfigured()) await finishSource(key, revision, processed);
-      return;
-    }
+    const alreadyProcessed =
+      processed !== undefined && object.parse(processed).revision === revision;
     // A separate derived report preserves the raw source and all older reports.
-    const analysis = {
-      revision,
-      processedAt: new Date().toISOString(),
-      report,
-      related,
+    const analysis = alreadyProcessed
+      ? object.parse(processed)
+      : {
+          revision,
+          processedAt: new Date().toISOString(),
+          report,
+          related,
+        };
+    const notification = await createNotification({
+      kind: "report",
+      title:
+        `Встреча Plaud: ${typeof snapshot.metadata.name === "string" ? snapshot.metadata.name : snapshot.fileId}`.slice(
+          0,
+          160,
+        ),
+      body: z.string().min(1).parse(analysis.report),
+      source: `plaud:${snapshot.account}:${key}`,
+      idempotencyKey: `plaud:${key}:${revision}`,
+    });
+    const saved = {
+      ...analysis,
+      report: notification.body,
+      reportId: notification.id,
     };
     await writeFileAtomic(
       join(dir, `${revision}.analysis.json`),
-      JSON.stringify(analysis, null, 2),
+      JSON.stringify(saved, null, 2),
       { mode: 0o600 },
     );
     await writeFileAtomic(
       join(dir, "processed.json"),
-      JSON.stringify(analysis, null, 2),
+      JSON.stringify(saved, null, 2),
       { mode: 0o600 },
     );
-    if (ingestionConfigured()) await finishSource(key, revision, analysis);
+    if (ingestionConfigured())
+      await finishSource(key, revision, saved, notification.id);
   });
 }
 

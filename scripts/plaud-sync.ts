@@ -5,6 +5,7 @@ import {
   closeIngestion,
 } from "#lib/ingestion-store.ts";
 import { join } from "node:path";
+import { deliverPlaudReports } from "./lib/plaud-report-delivery.ts";
 import { Client } from "eve/client";
 import { writeFileAtomic } from "#lib/fs-atomic.ts";
 import { readFile } from "node:fs/promises";
@@ -94,6 +95,7 @@ try {
     console.log(
       `Plaud: checked ${result.checked}, imported ${result.imported}, pending ${result.pending.length}, errors ${result.errors.length}`,
     );
+    let deliveryErrors = 0;
     try {
       if (selected.length) {
         await requirePlaudMemorySchema(
@@ -147,8 +149,21 @@ try {
           "Some Plaud sources failed to import; they will be retried",
         );
     } finally {
-      if (ingestionConfigured()) await releaseSources(selected);
+      try {
+        // Delivery retries run even when no meetings need model processing.
+        const delivery = await deliverPlaudReports(result.account);
+        deliveryErrors = delivery.errors;
+        console.log(
+          `Plaud notifications: sent ${delivery.sent}, errors ${delivery.errors}`,
+        );
+      } finally {
+        if (ingestionConfigured()) await releaseSources(selected);
+      }
     }
+    if (deliveryErrors)
+      throw new Error(
+        "Some Plaud notifications failed; saved reports will retry next tick",
+      );
   }
 } finally {
   await closeIngestion();

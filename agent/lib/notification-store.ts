@@ -35,6 +35,11 @@ type NotificationFile = {
 
 const EMPTY: NotificationFile = { version: 1, notifications: [] };
 
+export function notificationIdForKey(idempotencyKey: string): string {
+  const hash = createHash("sha256").update(idempotencyKey).digest("hex");
+  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-5${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
+}
+
 function paths() {
   const file = join(dataDir(), "notifications.json");
   return { file, lock: `${file}.lock` };
@@ -73,12 +78,9 @@ export async function createNotification(input: {
       .split(/\r?\n/u)
       .find((line) => line.trim())
       ?.trim() ?? body;
-  const hash = input.idempotencyKey
-    ? createHash("sha256").update(input.idempotencyKey).digest("hex")
-    : undefined;
   let notification: IvaNotification = {
-    id: hash
-      ? `${hash.slice(0, 8)}-${hash.slice(8, 12)}-5${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`
+    id: input.idempotencyKey
+      ? notificationIdForKey(input.idempotencyKey)
       : randomUUID(),
     kind: input.kind ?? "notice",
     title: input.title?.trim() || firstLine.slice(0, 100),
@@ -115,8 +117,28 @@ export async function listNotifications(
 export async function getNotification(
   id: string,
 ): Promise<IvaNotification | undefined> {
+  return (await getNotifications([id]))[0];
+}
+
+export async function getNotifications(
+  ids: readonly string[],
+): Promise<IvaNotification[]> {
+  const selected = new Set(ids);
   const current = await loadJsonStrict<NotificationFile>(paths().file, EMPTY);
-  return current.notifications.find((item) => item.id === id);
+  return current.notifications.filter((item) => selected.has(item.id));
+}
+
+export async function pendingReportNotifications(
+  sourcePrefix: string,
+): Promise<IvaNotification[]> {
+  const current = await loadJsonStrict<NotificationFile>(paths().file, EMPTY);
+  return current.notifications.filter(
+    (item) =>
+      item.kind === "report" &&
+      item.source?.startsWith(sourcePrefix) &&
+      item.telegram?.status !== "sent" &&
+      item.telegram?.status !== "skipped",
+  );
 }
 
 export async function unreadNotificationCount(

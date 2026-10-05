@@ -45,4 +45,7 @@ For each source:
 
 Scheduled processing returns only counts and errors as final text, never transcript bodies
 or the full report (the transcript hook logs final replies). Detailed reports live in the
-source archive and meeting cards. Interactive answers may show the contextual report.
+source archive, meeting cards and the report inbox. Finishing saves one report per source
+revision; the background sync sends its ready notification and retries failed delivery
+without processing the meeting again. Do not send a separate notification yourself.
+Interactive answers may show the contextual report.

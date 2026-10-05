@@ -30,12 +30,18 @@ export async function sendReportReady(
 ): ReturnType<typeof sendTelegramHtml> {
   try {
     const morning = report.source === "morning-digest";
+    const plaud = report.source?.startsWith("plaud:");
     return await sendTelegramHtml(
       bot,
       chat,
       morning
         ? tr("Your report and plan are ready.", "Отчёт и план готовы.")
-        : tr("Your report is ready.", "Отчёт готов."),
+        : plaud
+          ? tr(
+              "Your Plaud meeting analysis is ready.",
+              "Разбор встречи Plaud готов.",
+            )
+          : tr("Your report is ready.", "Отчёт готов."),
       {
         ...options,
         replyMarkup: {

@@ -18,7 +18,10 @@ import {
   closeIngestion,
 } from "./ingestion-store.ts";
 import { syncNewMail, processMail } from "./mail-ingestion.ts";
-import { listNotifications } from "./notification-store.ts";
+import {
+  listNotifications,
+  setNotificationTelegramDelivery,
+} from "./notification-store.ts";
 
 void test(
   "real PostgreSQL/S3: new mail only, durable cursor, exclusive claims and report retries",
@@ -110,6 +113,32 @@ void test(
         ((await readSourceAnalysis(key)) as { report: string }).report,
         "Fixture analysis",
       );
+      const [savedReport] = await listNotifications();
+      await setNotificationTelegramDelivery(savedReport.id, "failed");
+      const mustNotSummarize = async () => {
+        throw new Error("Saved reports must not invoke the model");
+      };
+      const failedDelivery = await processMail(
+        account,
+        mustNotSummarize,
+        async () => {
+          throw new Error("Telegram unavailable");
+        },
+      );
+      assert.deepEqual(failedDelivery, { processed: 0, pending: 1, errors: 1 });
+      const [pendingJob] =
+        await sql`SELECT status FROM iva_ingestion.jobs WHERE source_key=${key}`;
+      assert.equal(pendingJob.status, "pending");
+      await sql`UPDATE iva_ingestion.jobs SET next_attempt_at=now() WHERE source_key=${key}`;
+      assert.deepEqual(
+        await processMail(account, mustNotSummarize, async (report) => {
+          assert.equal(report.id, savedReport.id);
+          assert.equal(report.body, "Fixture analysis");
+          await setNotificationTelegramDelivery(report.id, "sent");
+        }),
+        { processed: 1, pending: 0, errors: 0 },
+      );
+      assert.equal((await listNotifications()).length, 1);
       await storeSource({
         provider: "mail",
         account,

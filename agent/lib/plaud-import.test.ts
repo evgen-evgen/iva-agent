@@ -26,9 +26,18 @@ const wrapped = (value: unknown, tag = "abcdef1234") => ({
 });
 async function fixture(run: (root: string) => Promise<void>) {
   const root = await mkdtemp(join(tmpdir(), "iva-plaud-test-"));
+  const previousData = process.env.ASSISTANT_DATA_DIR;
+  const previousSecret = process.env.LIBRECHAT_NOTIFICATION_SECRET;
+  process.env.ASSISTANT_DATA_DIR = join(root, "data");
+  delete process.env.LIBRECHAT_NOTIFICATION_SECRET;
   try {
     await run(root);
   } finally {
+    if (previousData === undefined) delete process.env.ASSISTANT_DATA_DIR;
+    else process.env.ASSISTANT_DATA_DIR = previousData;
+    if (previousSecret === undefined)
+      delete process.env.LIBRECHAT_NOTIFICATION_SECRET;
+    else process.env.LIBRECHAT_NOTIFICATION_SECRET = previousSecret;
     await rm(root, { recursive: true, force: true });
   }
 }

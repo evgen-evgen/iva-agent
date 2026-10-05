@@ -12,9 +12,14 @@ import {
   releaseSources,
   finishSource,
   readSource,
+  listCompletedSourceReports,
+  retrySourceDelivery,
 } from "./ingestion-store.ts";
 import {
   createNotification,
+  getNotification,
+  getNotifications,
+  notificationIdForKey,
   type IvaNotification,
 } from "./notification-store.ts";
 
@@ -170,15 +175,39 @@ export async function syncNewMail(
   }
   return { baseline: false, imported };
 }
+const mailProcessingStore = {
+  listPendingSources,
+  claimSources,
+  releaseSources,
+  readSource,
+  finishSource,
+  listCompletedSourceReports,
+  retrySourceDelivery,
+};
+
 export async function processMail(
   account: string,
   summarize: (source: ImportedMail) => Promise<string>,
   deliver?: (notification: IvaNotification) => Promise<void>,
+  store = mailProcessingStore,
 ) {
-  const queued = (await listPendingSources("mail", account)).map((x) =>
+  // Recover reports marked done by older versions despite a failed Telegram send.
+  if (deliver) {
+    const completed = await store.listCompletedSourceReports("mail", account);
+    const failedIds = new Set(
+      (await getNotifications(completed.map((item) => item.reportId)))
+        .filter((notification) => notification.telegram?.status === "failed")
+        .map((notification) => notification.id),
+    );
+    for (const item of completed) {
+      if (failedIds.has(item.reportId))
+        await store.retrySourceDelivery(item.key, item.revision);
+    }
+  }
+  const queued = (await store.listPendingSources("mail", account)).map((x) =>
     mailSchema.parse(x),
   );
-  const selected = await claimSources(
+  const selected = await store.claimSources(
     queued.slice(0, 5).map((x) => ({ key: x.key, revision: x.revision })),
   );
   let processed = 0;
@@ -186,26 +215,40 @@ export async function processMail(
   try {
     for (const item of selected) {
       try {
-        const source = mailSchema.parse(await readSource(item.key));
-        const report = (await summarize(source)).trim();
-        if (!report) throw new Error("Mail summary was empty");
-        const subject =
-          typeof source.message.subject === "string"
-            ? source.message.subject
-            : "Без темы";
-        const notification = await createNotification({
-          kind: "report",
-          title: `Письмо: ${subject}`.slice(0, 160),
-          body: report,
-          source: `mail:${source.key}`,
-          idempotencyKey: `mail:${source.key}:${source.revision}`,
-        });
-        if (deliver) await deliver(notification);
-        await finishSource(
+        const source = mailSchema.parse(await store.readSource(item.key));
+        const idempotencyKey = `mail:${source.key}:${source.revision}`;
+        // Saving the report precedes delivery. Reuse it after delivery or finish failures.
+        let notification = await getNotification(
+          notificationIdForKey(idempotencyKey),
+        );
+        if (!notification) {
+          const report = (await summarize(source)).trim();
+          if (!report) throw new Error("Mail summary was empty");
+          const subject =
+            typeof source.message.subject === "string"
+              ? source.message.subject
+              : "Без темы";
+          notification = await createNotification({
+            kind: "report",
+            title: `Письмо: ${subject}`.slice(0, 160),
+            body: report,
+            source: `mail:${source.key}`,
+            idempotencyKey,
+          });
+        }
+        if (deliver && notification.telegram?.status !== "sent") {
+          await deliver(notification);
+          if (
+            (await getNotification(notification.id))?.telegram?.status ===
+            "failed"
+          )
+            throw new Error("Mail report delivery failed");
+        }
+        await store.finishSource(
           source.key,
           source.revision,
           {
-            report,
+            report: notification.body,
             reportId: notification.id,
             processedAt: new Date().toISOString(),
           },
@@ -218,7 +261,7 @@ export async function processMail(
       }
     }
   } finally {
-    await releaseSources(selected);
+    await store.releaseSources(selected);
   }
   return { processed, pending: queued.length - processed, errors };
 }
