@@ -230,6 +230,7 @@ test("notification state is atomic, private and readable", async () => {
 test("daily check sends one offer per version and records only successful sends", async () => {
   const root = mkdtempSync(join(tmpdir(), "iva-daily-check-"));
   const env = {
+    IVA_UPDATE_NOTIFICATIONS_ENABLED: "true",
     TELEGRAM_BOT_TOKEN: "token",
     TELEGRAM_DIAGNOSTIC_CHAT_ID: "42",
     TELEGRAM_NOTIFICATION_CHAT_ID: "7",
@@ -296,6 +297,7 @@ test("the daily notice says what is new, in the language of the notice", async (
   const result = await runDailyUpdateCheck({
     root,
     env: {
+      IVA_UPDATE_NOTIFICATIONS_ENABLED: "true",
       TELEGRAM_BOT_TOKEN: "token",
       TELEGRAM_DIAGNOSTIC_CHAT_ID: "42",
       AGENT_LANGUAGE: "ru",
@@ -340,6 +342,7 @@ test("the daily notice survives a README it cannot read", async () => {
     const result = await runDailyUpdateCheck({
       root,
       env: {
+        IVA_UPDATE_NOTIFICATIONS_ENABLED: "true",
         TELEGRAM_BOT_TOKEN: "token",
         TELEGRAM_DIAGNOSTIC_CHAT_ID: "42",
         ASSISTANT_DATA_DIR: "data",
@@ -371,11 +374,17 @@ test("the daily notice survives a README it cannot read", async () => {
 test("daily check is silent without config, without a release, or during an update", async () => {
   const root = mkdtempSync(join(tmpdir(), "iva-daily-silent-"));
   assert.equal(
-    (await runDailyUpdateCheck({ root, env: {} })).status,
+    (
+      await runDailyUpdateCheck({
+        root,
+        env: { IVA_UPDATE_NOTIFICATIONS_ENABLED: "true" },
+      })
+    ).status,
     "not-configured",
   );
 
   const env = {
+    IVA_UPDATE_NOTIFICATIONS_ENABLED: "true",
     TELEGRAM_BOT_TOKEN: "token",
     TELEGRAM_DIAGNOSTIC_CHAT_ID: "1",
   };
@@ -394,6 +403,26 @@ test("daily check is silent without config, without a release, or during an upda
     inspectImpl: async () => assert.fail("must not fetch during update"),
   });
   assert.equal(locked.status, "update-running");
+});
+
+test("CEO pilot disables automatic update offers before any upstream or delivery work", async () => {
+  for (const setting of [undefined, "", "false", "0", "off", "invalid"]) {
+    const root = join(tmpdir(), "iva-disabled-update-check-must-not-create");
+    const env: Record<string, string> = {
+      TELEGRAM_BOT_TOKEN: "token",
+      TELEGRAM_DIAGNOSTIC_CHAT_ID: "42",
+    };
+    if (setting !== undefined) env.IVA_UPDATE_NOTIFICATIONS_ENABLED = setting;
+    const result = await runDailyUpdateCheck({
+      root,
+      env,
+      inspectImpl: async () =>
+        assert.fail("disabled check must not inspect upstream"),
+      gitImpl: async () => assert.fail("disabled check must not call git"),
+      sendImpl: async () => assert.fail("disabled check must not send offers"),
+    });
+    assert.equal(result.status, "disabled");
+  }
 });
 
 test("offer copy is bilingual and keeps existing callback actions", () => {
@@ -483,6 +512,7 @@ test("on the versioned layout the daily check reads the mirror and names the ins
     // The units run from `current`, which is where the check starts too.
     root: join(home, "current"),
     env: {
+      IVA_UPDATE_NOTIFICATIONS_ENABLED: "true",
       TELEGRAM_BOT_TOKEN: "token",
       TELEGRAM_DIAGNOSTIC_CHAT_ID: "1",
     },
@@ -504,6 +534,7 @@ test("on the versioned layout the daily check reads the mirror and names the ins
   const notified = await runDailyUpdateCheck({
     root: join(home, "current"),
     env: {
+      IVA_UPDATE_NOTIFICATIONS_ENABLED: "true",
       TELEGRAM_BOT_TOKEN: "token",
       TELEGRAM_DIAGNOSTIC_CHAT_ID: "1",
     },
@@ -539,6 +570,7 @@ const texts = [];
 const result = await runDailyUpdateCheck({
   root: process.env.__ROOT,
   env: {
+    IVA_UPDATE_NOTIFICATIONS_ENABLED: "true",
     TELEGRAM_BOT_TOKEN: "token",
     TELEGRAM_DIAGNOSTIC_CHAT_ID: "42",
     ASSISTANT_DATA_DIR: process.env.ASSISTANT_DATA_DIR,

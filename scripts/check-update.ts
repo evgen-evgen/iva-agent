@@ -4,6 +4,7 @@ import { isEntrypoint, upstreamQuery } from "./lib/version-layout.ts";
 import { noticeLang } from "./lib/notice-policy.ts";
 import { acquireUpdateLock } from "./lib/version-store.ts";
 import { resolveDataDir } from "./lib/data-dir.ts";
+import { envFlag } from "../agent/lib/feature-flags.ts";
 import {
   gitAt,
   inspectUpstream,
@@ -100,6 +101,9 @@ export async function runDailyUpdateCheck({
   writeStateImpl = markVersionNotified,
   gitImpl = gitAt,
 }: DailyUpdateOptions = {}) {
+  // CEO pilot releases are managed separately; public update offers require opt-in.
+  if (!envFlag(env.IVA_UPDATE_NOTIFICATIONS_ENABLED, false))
+    return { status: "disabled" as const };
   const token = String(env.TELEGRAM_BOT_TOKEN ?? "").trim();
   const chatId = diagnosticChat(env);
   if (!token || !chatId) return { status: "not-configured" as const };
