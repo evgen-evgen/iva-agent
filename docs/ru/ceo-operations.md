@@ -1,11 +1,11 @@
 # Запуск и обслуживание текущей CEO-установки
 
-Эта памятка относится к checkout `/home/evgen/Work/benchmarks/CeoBench/iva-agent`.
+Эта памятка относится к checkout `/home/iva-agent`.
 Для установки с нуля используйте [полную инструкцию](full-startup.md).
 Все команды ниже выполняются от владельца установки из этого каталога:
 
 ```bash
-cd /home/evgen/Work/benchmarks/CeoBench/iva-agent
+cd /home/iva-agent
 ```
 
 ## Какие компоненты запускаются
