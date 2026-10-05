@@ -128,3 +128,28 @@ commitments via `write_commitment`; the shared turn context and morning digest s
 open commitments and blockers. Enabling this profile does not ingest external email or
 meeting transcripts automatically. Plaud importing is enabled separately; see
 [`iva-plaud`](../plugins/iva-plaud/README.md#background-import-without-zapier).
+
+## Incoming-source storage (PostgreSQL and Garage S3)
+
+`npm run ingestion:setup` generates private credentials in `.env` and starts
+separate containers. IMAP/SMTP credentials stay in the `iva-mail` configuration.
+
+| Variable                    | Setup value / purpose                                                                 |
+| --------------------------- | ------------------------------------------------------------------------------------- |
+| `IVA_POSTGRES_PORT`         | `55433`, loopback PostgreSQL port                                                     |
+| `IVA_POSTGRES_PASSWORD`     | Generated private container password                                                  |
+| `IVA_METADATA_DATABASE_URL` | Private application connection URL for `iva_metadata`                                 |
+| `IVA_ARCHIVE_PORT`          | `3900`, loopback Garage S3 port                                                       |
+| `IVA_ARCHIVE_ENDPOINT`      | `http://127.0.0.1:3900`                                                               |
+| `IVA_ARCHIVE_REGION`        | `garage`                                                                              |
+| `IVA_ARCHIVE_BUCKET`        | `iva-archive`                                                                         |
+| `IVA_ARCHIVE_ACCESS_KEY`    | Generated private S3 access key                                                       |
+| `IVA_ARCHIVE_SECRET_KEY`    | Generated private S3 secret key                                                       |
+| `LIBRECHAT_PUBLIC_URL`      | Browser-accessible LibreChat URL for Telegram report links and report synchronization |
+
+Background import is enabled separately: `mailSync.enabled`, `plaudSync.enabled`
+and `plaudSync.since` are stored in `data/settings.json`. The mail cursor is in
+PostgreSQL. Storage credentials do not enable importing by themselves.
+
+Russian guides: [full startup](ru/full-startup.md), [incoming archive](incoming-storage.md),
+[CEO operations](ru/ceo-operations.md).

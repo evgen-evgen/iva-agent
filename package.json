@@ -39,11 +39,15 @@
     "test:coverage": "node --test --test-concurrency=4 --experimental-test-coverage --test-coverage-include=\"agent/**/*.ts\" --test-coverage-include=\"scripts/**/*.ts\" --test-coverage-exclude=\"**/*.test.ts\" --test-coverage-exclude=\"scripts/fixtures/**/*.ts\" --test-coverage-lines=75 --test-coverage-branches=77 --test-coverage-functions=71 \"agent/**/*.test.ts\" \"scripts/**/*.test.ts\"",
     "test:security": "node --test agent/lib/eve-auth.test.ts scripts/lib/assistant-auth.test.ts scripts/lib/listener-security.test.ts scripts/lib/security-migration.test.ts",
     "test:update-ui": "node --test scripts/lib/update-ui.test.ts scripts/lib/update-check.test.ts",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "ingestion:setup": "node scripts/ingestion-setup.ts",
+    "ingestion:migrate": "node --env-file=.env scripts/ingestion-migrate.ts",
+    "mail:sync": "node --env-file=.env scripts/mail-sync.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "4.0.15",
     "@ai-sdk/openai-compatible": "^3.0.11",
+    "@aws-sdk/client-s3": "^3.1146.0",
     "@iva/context-window": "file:packages/context-window",
     "@iva/data-dir": "file:packages/data-dir",
     "@iva/timezone": "file:packages/timezone",
@@ -52,6 +56,7 @@
     "ai": "7.0.39",
     "eve": "0.30.8",
     "just-bash": "^3.0.0",
+    "postgres": "^3.4.9",
     "zod": "4.4.3"
   },
   "devDependencies": {

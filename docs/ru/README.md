@@ -5,6 +5,8 @@ Iva - self-hosted ассистент в Telegram со слоями памяти:
 **На русском:**
 
 - [full-startup.md](full-startup.md) - полный запуск Ивы: Telegram, LibreChat, Mail и Plaud
+- [ceo-operations.md](ceo-operations.md) - запуск и перезапуск действующей CEO-установки
+- [Входящие и архив](../incoming-storage.md) - PostgreSQL, Garage S3, новые письма и восстановление
 
 - [use-cases.md](use-cases.md) - кто и зачем ставит Иву: сценарии для бизнеса, работы и жизни
 - [install.md](install.md) - одна команда на чистом VPS, от curl до первого сообщения бота

@@ -145,6 +145,7 @@ test("MCP exposes the guarded mail tools", async () => {
       "mail_list_mailboxes",
       "mail_list_messages",
       "mail_read_message",
+      "mail_poll_messages",
       "mail_prepare_message",
       "mail_send_prepared",
       "mail_discard_prepared",

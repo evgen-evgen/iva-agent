@@ -4,6 +4,8 @@ Iva is a self-hosted Telegram AI assistant with layered memory that turns your m
 
 - [use-cases.md](use-cases.md) — who runs Iva and for what: scenarios for business, work and everyday life
 - [Full Iva startup (Russian)](ru/full-startup.md) — Telegram, LibreChat, Mail and Plaud in one installation
+- [CEO operations (Russian)](ru/ceo-operations.md) — start/restart the existing CEO deployment and diagnose incoming jobs
+- [Incoming-source storage (Russian)](incoming-storage.md) — PostgreSQL, Garage S3, new mail and backups
 - [install.md](install.md) — one command on a fresh VPS, from curl to the bot's first message
 - [configuration.md](configuration.md) — every `.env` variable and the setup wizard
 - [Plaud startup guide (Russian)](ru/plaud.md) — CEO profile, account connection, first import and troubleshooting

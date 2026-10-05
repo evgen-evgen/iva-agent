@@ -7,6 +7,7 @@ import {
   discardPrepared,
   listMailboxes,
   listMessages,
+  pollMessages,
   prepareMessage,
   readMessage,
   sendPrepared,
@@ -91,6 +92,24 @@ const tools: Record<string, Tool> = {
     },
     handler: listMessages,
   },
+  mail_poll_messages: {
+    definition: {
+      description:
+        "Poll new IMAP UIDs without reading old mail or changing flags; first call captures a baseline.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          mailbox: { type: "string" },
+          after_uid: { type: "integer", minimum: 0 },
+          uidvalidity: { type: "string" },
+          limit: { type: "integer", minimum: 1, maximum: 100 },
+        },
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: true },
+    },
+    handler: pollMessages,
+  },
   mail_read_message: {
     definition: {
       description:
@@ -99,6 +118,7 @@ const tools: Record<string, Tool> = {
         type: "object",
         properties: {
           uid: { type: "string" },
+          uidvalidity: { type: "string" },
           mailbox: { type: "string", default: "INBOX" },
           max_body_chars: {
             type: "integer",

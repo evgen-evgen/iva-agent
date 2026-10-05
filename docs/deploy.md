@@ -1,6 +1,11 @@
 # Deploy
 
-Iva runs on one VPS as two systemd user services, two systemd watchdog timers, and five in-process eve schedules. `install.sh` sets all of it up ([install](./install.md)); this page is what's actually running and how to operate it.
+Iva runs on one VPS as two systemd user services, two systemd watchdog timers, and in-process eve schedules (five core jobs plus optional Plaud/mail imports). `install.sh` sets all of it up ([install](./install.md)); this page is what's actually running and how to operate it.
+
+For the existing isolated CEO checkout, use its [operations guide (Russian)](ru/ceo-operations.md).
+Its units are `iva-ceo-runtime.service` and `iva-ceo-telegram-poll.service`; generic
+CLI restarts regenerate the standard units and are unsuitable when another Iva
+installation already owns them.
 
 ## Transport: long polling
 
@@ -82,6 +87,19 @@ The four memory-rollup cadences moved off systemd and run as `agent/schedules/*.
 | `memory-yearly`  | `25 4 1 1 *` (Jan 1, 04:25) | monthlies → yearly summary (silent)                                                                                                |
 | `digest`         | `0 8 * * *` (08:00 daily)   | morning digest — **off by default**, enable via `digestSchedule.enabled` in `data/settings.json`                                   |
 
+Optional incoming-source schedules run inside the same runtime:
+
+| Schedule     | Cron              | Storage / switch                                                                   |
+| ------------ | ----------------- | ---------------------------------------------------------------------------------- |
+| `plaud-sync` | `*/10 * * * *`    | CEO meeting/commitment memory; `plaudSync.enabled`, new-only `plaudSync.since`     |
+| `mail-sync`  | `5-59/10 * * * *` | PostgreSQL cursor/queue, Garage S3 archive, Libre report chats; `mailSync.enabled` |
+
+These jobs use a nine-minute timeout and separate status files:
+`data/plaud-sync-status.json` and `data/mail-sync-status.json`. They are not covered
+by the memory-rollup catch-up windows described below. After downtime, the next tick
+checks sources against the persisted mail cursor / Plaud scope. For storage setup,
+see [incoming storage (Russian)](incoming-storage.md).
+
 Each one is a thin spawner (`agent/lib/schedule-runner.ts`): it runs the exact same command the old timer did (`flock -w 3900 .memory.lock node --env-file=.env scripts/memory/rollup.ts <period>`), under a hard timeout, and records the outcome to `data/rollup-status.json`. `iva.service` sets `Environment=TZ` from `ASSISTANT_TIMEZONE` (`ivaServiceBody()` in `scripts/cli/systemd.ts`), so cron expressions above tick in the configured local time, not the host's system TZ — Nitro's schedule runner carries no timezone of its own otherwise.
 
 Nitro's scheduled-task runner has no `Persistent=true` equivalent, so a period missed while the server was down does **not** auto-fire on its own. `agent/lib/schedule-migration.ts` replaces that: on every server start it compares each period's last recorded success against its most recent scheduled point and, if it's stale and still within a grace window (20h daily / 3d weekly / 7d monthly / 14d yearly), runs it once. A brand-new install seeds a baseline and runs nothing on its first boot, so installing never triggers an immediate storm of catch-up jobs. The same start-up hook also retires the old `iva-memory-{daily,weekly,monthly,yearly}.{service,timer}` units on any existing install, by exact name only — any unrelated timer you've set up yourself is left alone.
@@ -109,13 +127,19 @@ Exposing the Eve HTTP channel is a separate security decision. Require HTTPS and
 
 ## Moving servers
 
-Your state is three things: the vault (its own git repo, pushed nightly by the Brain pass), `.env` (all keys), and `data/` (`tasks.json`, `usage.jsonl`).
+The core state is: the vault (its own git repo, pushed nightly by the Brain pass), `.env` (all keys), and `data/` (`tasks.json`, `usage.jsonl`).
 
 1. Old box: `npm run brain` to push the vault, then copy `.env` and `data/` off.
 2. New box: run the installer ([install](./install.md)) with `--skip-setup`, drop in `.env`.
 3. Clone the vault back — `gh repo clone <user>/iva-vault <vault-dir>` — restore `data/`, then `iva restart`.
 
 If all you have left is the vault repo, you lose open tasks and token history. Memory survives intact.
+
+When PostgreSQL/Garage incoming storage is enabled, also restore a PostgreSQL dump,
+a consistent snapshot of both Garage volumes, and `data/garage/garage.toml` with
+the existing `.env` archive credentials. LibreChat needs its MongoDB and other
+persistent volumes. A code checkout and vault alone cannot restore the archive or
+mail cursor. See [storage backups (Russian)](incoming-storage.md#сохранность).
 
 ## Vercel (advanced)
 

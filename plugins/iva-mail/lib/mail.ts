@@ -69,8 +69,10 @@ function safeMailbox(value: unknown): string {
 }
 
 export function hasImapSearchValue(value: unknown): boolean {
-  return value !== undefined &&
-    (typeof value !== "string" || value.trim().length > 0);
+  return (
+    value !== undefined &&
+    (typeof value !== "string" || value.trim().length > 0)
+  );
 }
 
 function imapSearchValue(value: unknown, field: string): string {
@@ -343,6 +345,70 @@ export async function listMessages(
   }
 }
 
+export function mailboxGeneration(lines: string[]) {
+  const text = lines.join("\n");
+  const validity = text.match(/\[UIDVALIDITY (\d+)\]/iu)?.[1];
+  const next = text.match(/\[UIDNEXT (\d+)\]/iu)?.[1];
+  if (!validity || !next)
+    throw new MailError("IMAP server did not provide UIDVALIDITY and UIDNEXT");
+  return { uidvalidity: validity, uidnext: Number(next) };
+}
+
+export async function pollMessages(
+  args: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const mailbox = safeMailbox(args.mailbox ?? "INBOX");
+  const after = args.after_uid;
+  if (
+    after !== undefined &&
+    (!Number.isSafeInteger(after) || Number(after) < 0)
+  )
+    throw new MailError("after_uid must be a non-negative safe integer");
+  const limit = args.limit ?? 25;
+  if (!Number.isInteger(limit) || Number(limit) < 1 || Number(limit) > 100)
+    throw new MailError("invalid polling limit");
+  const client = await connectImap();
+  try {
+    const examined = await client.execute(`EXAMINE ${imapQuote(mailbox)}`);
+    const generation = mailboxGeneration(examined.lines);
+    if (after === undefined || args.uidvalidity !== generation.uidvalidity)
+      return {
+        mailbox,
+        ...generation,
+        baseline: true,
+        uids: [],
+        last_uid: generation.uidnext - 1,
+      };
+    const searched = await client.execute(
+      `UID SEARCH UID ${Number(after) + 1}:*`,
+    );
+    const uids = (
+      searched.lines
+        .find((line) => /^\* SEARCH(?: |$)/u.test(line))
+        ?.slice(8)
+        .trim()
+        .split(/\s+/u) ?? []
+    )
+      .filter(
+        (uid) =>
+          /^\d+$/u.test(uid) &&
+          Number(uid) > Number(after) &&
+          Number.isSafeInteger(Number(uid)),
+      )
+      .sort((a, b) => Number(a) - Number(b))
+      .slice(0, Number(limit));
+    return {
+      mailbox,
+      ...generation,
+      baseline: false,
+      uids,
+      last_uid: uids.length ? Number(uids.at(-1)) : Number(after),
+    };
+  } finally {
+    await client.close();
+  }
+}
+
 export async function readMessage(
   arguments_: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
@@ -364,9 +430,16 @@ export async function readMessage(
 
   const client = await connectImap();
   try {
-    await client.execute(
+    const examined = await client.execute(
       `${markSeen ? "SELECT" : "EXAMINE"} ${imapQuote(mailbox)}`,
     );
+    if (
+      arguments_.uidvalidity !== undefined &&
+      mailboxGeneration(examined.lines).uidvalidity !== arguments_.uidvalidity
+    )
+      throw new MailError(
+        "Mailbox UIDVALIDITY changed; re-establish the polling baseline",
+      );
     const fetched = await client.execute(
       `UID FETCH ${uid} (${markSeen ? "RFC822" : "BODY.PEEK[]"})`,
     );

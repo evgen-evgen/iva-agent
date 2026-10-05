@@ -60,8 +60,47 @@ services:
       - librechat-mongodb:/data/db
     restart: unless-stopped
 
+  ceo-postgres:
+    profiles: ["iva-data"]
+    image: postgres:18
+    container_name: iva-ceo-postgres
+    environment:
+      POSTGRES_DB: iva_metadata
+      POSTGRES_USER: iva
+      POSTGRES_PASSWORD: ${IVA_POSTGRES_PASSWORD:-}
+    ports:
+      - "127.0.0.1:${IVA_POSTGRES_PORT:-55433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U iva -d iva_metadata"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - ceo-postgres:/var/lib/postgresql
+    restart: unless-stopped
+
+  ceo-archive:
+    profiles: ["iva-data"]
+    image: dxflrs/garage:v2.3.0
+    container_name: iva-ceo-archive
+    command: ["/garage", "server", "--single-node", "--default-bucket"]
+    environment:
+      GARAGE_DEFAULT_ACCESS_KEY: ${IVA_ARCHIVE_ACCESS_KEY:-}
+      GARAGE_DEFAULT_SECRET_KEY: ${IVA_ARCHIVE_SECRET_KEY:-}
+      GARAGE_DEFAULT_BUCKET: ${IVA_ARCHIVE_BUCKET:-iva-archive}
+    ports:
+      - "127.0.0.1:${IVA_ARCHIVE_PORT:-3900}:3900"
+    volumes:
+      - ./data/garage/garage.toml:/etc/garage.toml:ro
+      - ceo-archive-meta:/var/lib/garage/meta
+      - ceo-archive-data:/var/lib/garage/data
+    restart: unless-stopped
+
 volumes:
   librechat-data:
   librechat-uploads:
   librechat-logs:
   librechat-mongodb:
+  ceo-postgres:
+  ceo-archive-meta:
+  ceo-archive-data:

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { dataDir } from "./data-dir.ts";
 import { syncLibreChatReports } from "./librechat-report-sync.ts";
@@ -64,6 +64,7 @@ export async function createNotification(input: {
   readonly kind?: NotificationKind;
   readonly source?: string;
   readonly title?: string;
+  readonly idempotencyKey?: string;
 }): Promise<IvaNotification> {
   const body = input.body.trim();
   if (!body) throw new Error("notification body is empty");
@@ -72,15 +73,27 @@ export async function createNotification(input: {
       .split(/\r?\n/u)
       .find((line) => line.trim())
       ?.trim() ?? body;
-  const notification: IvaNotification = {
-    id: randomUUID(),
+  const hash = input.idempotencyKey
+    ? createHash("sha256").update(input.idempotencyKey).digest("hex")
+    : undefined;
+  let notification: IvaNotification = {
+    id: hash
+      ? `${hash.slice(0, 8)}-${hash.slice(8, 12)}-5${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`
+      : randomUUID(),
     kind: input.kind ?? "notice",
     title: input.title?.trim() || firstLine.slice(0, 100),
     body,
     createdAt: new Date().toISOString(),
     ...(input.source ? { source: input.source } : {}),
   };
-  await update((items) => [...items, notification]);
+  await update((items) => {
+    const existing = items.find((item) => item.id === notification.id);
+    if (existing) {
+      notification = existing;
+      return items;
+    }
+    return [...items, notification];
+  });
   if (notification.kind === "report") await syncLibreChatReports();
   return notification;
 }

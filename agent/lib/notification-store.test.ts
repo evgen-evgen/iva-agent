@@ -59,3 +59,28 @@ void test("notification inbox persists, orders and acknowledges entries", async 
     else process.env.ASSISTANT_DATA_DIR = previous;
   }
 });
+
+void test("retry preserves the original report and read state", async () => {
+  const previous = process.env.ASSISTANT_DATA_DIR;
+  process.env.ASSISTANT_DATA_DIR = await mkdtemp(
+    join(tmpdir(), "iva-notification-retry-"),
+  );
+  try {
+    const first = await createNotification({
+      body: "Original",
+      idempotencyKey: "mail:one:rev",
+    });
+    await markNotificationRead(first.id, "owner");
+    const retried = await createNotification({
+      body: "Different retry",
+      idempotencyKey: "mail:one:rev",
+    });
+    assert.equal(retried.id, first.id);
+    assert.equal(retried.body, "Original");
+    assert.ok(retried.readBy?.owner);
+    assert.equal((await listNotifications()).length, 1);
+  } finally {
+    if (previous === undefined) delete process.env.ASSISTANT_DATA_DIR;
+    else process.env.ASSISTANT_DATA_DIR = previous;
+  }
+});

@@ -3,6 +3,14 @@ import { mkdir, readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import {
+  ingestionConfigured,
+  storeSource,
+  readSource,
+  listPendingSources,
+  finishSource,
+  readSourceAnalysis,
+} from "./ingestion-store.ts";
+import {
   acquireFileLock,
   releaseFileLock,
   writeFileAtomic,
@@ -157,8 +165,19 @@ export async function savePlaudSnapshot(
     if (
       current !== undefined &&
       snapshotSchema.parse(current).revision === revision
-    )
+    ) {
+      if (ingestionConfigured())
+        await storeSource({
+          provider: "plaud",
+          account: input.account,
+          externalId: input.fileId,
+          key,
+          revision,
+          metadata: input.metadata,
+          raw: current,
+        });
       return false;
+    }
     const snapshot = {
       ...normalized,
       revision,
@@ -177,6 +196,16 @@ export async function savePlaudSnapshot(
       JSON.stringify(snapshot, null, 2),
       { mode: 0o600 },
     );
+    if (ingestionConfigured())
+      await storeSource({
+        provider: "plaud",
+        account: input.account,
+        externalId: input.fileId,
+        key,
+        revision,
+        metadata: input.metadata,
+        raw: snapshot,
+      });
     return true;
   });
 }
@@ -206,6 +235,11 @@ export async function pendingPlaud(
   account?: string,
   since?: string,
 ): Promise<PlaudSnapshot[]> {
+  if (ingestionConfigured()) {
+    return (await listPendingSources("plaud", account))
+      .map((item) => snapshotSchema.parse(item))
+      .filter((item) => plaudMetadataInScope(item.metadata, since));
+  }
   let entries: string[];
   try {
     entries = await readdir(root);
@@ -234,7 +268,9 @@ export async function readPlaudSnapshot(
 ): Promise<PlaudSnapshot> {
   if (!/^[a-f0-9]{64}$/.test(key)) throw new Error("Invalid Plaud source key");
   return snapshotSchema.parse(
-    await readOptional(join(root, key, "current.json")),
+    ingestionConfigured()
+      ? await readSource(key)
+      : await readOptional(join(root, key, "current.json")),
   );
 }
 
@@ -256,8 +292,10 @@ export async function finishPlaud(
     if (
       processed !== undefined &&
       object.parse(processed).revision === revision
-    )
+    ) {
+      if (ingestionConfigured()) await finishSource(key, revision, processed);
       return;
+    }
     // A separate derived report preserves the raw source and all older reports.
     const analysis = {
       revision,
@@ -275,6 +313,7 @@ export async function finishPlaud(
       JSON.stringify(analysis, null, 2),
       { mode: 0o600 },
     );
+    if (ingestionConfigured()) await finishSource(key, revision, analysis);
   });
 }
 
@@ -400,7 +439,9 @@ export async function readPlaudAnalysis(
   key: string,
 ): Promise<unknown> {
   if (!/^[a-f0-9]{64}$/.test(key)) throw new Error("Invalid Plaud source key");
-  return readOptional(join(root, key, "processed.json"));
+  return ingestionConfigured()
+    ? readSourceAnalysis(key)
+    : readOptional(join(root, key, "processed.json"));
 }
 
 export async function requirePlaudMemorySchema(vault: string): Promise<void> {

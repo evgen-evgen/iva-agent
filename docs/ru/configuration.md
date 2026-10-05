@@ -131,3 +131,29 @@ iva restart
 транскрипты встреч нужно подключать отдельно: включение профиля их не импортирует.
 
 Полный запуск импорта встреч Plaud описан отдельно: [Plaud → память CEO](plaud.md).
+
+## Хранилище входящих (PostgreSQL и Garage S3)
+
+`npm run ingestion:setup` генерирует приватные доступы в `.env` и запускает
+отдельные контейнеры. Не переносите IMAP/SMTP-пароли в этот файл: они остаются
+в конфигурации `iva-mail`.
+
+| Переменная                  | Значение после setup / назначение                                                                  |
+| --------------------------- | -------------------------------------------------------------------------------------------------- |
+| `IVA_POSTGRES_PORT`         | `55433`, loopback-порт PostgreSQL                                                                  |
+| `IVA_POSTGRES_PASSWORD`     | Сгенерированный приватный пароль контейнера                                                        |
+| `IVA_METADATA_DATABASE_URL` | Приватная строка подключения приложения к базе `iva_metadata`                                      |
+| `IVA_ARCHIVE_PORT`          | `3900`, loopback-порт Garage S3                                                                    |
+| `IVA_ARCHIVE_ENDPOINT`      | `http://127.0.0.1:3900`                                                                            |
+| `IVA_ARCHIVE_REGION`        | `garage`                                                                                           |
+| `IVA_ARCHIVE_BUCKET`        | `iva-archive`                                                                                      |
+| `IVA_ARCHIVE_ACCESS_KEY`    | Сгенерированный приватный S3 access key                                                            |
+| `IVA_ARCHIVE_SECRET_KEY`    | Сгенерированный приватный S3 secret key                                                            |
+| `LIBRECHAT_PUBLIC_URL`      | Адрес LibreChat, доступный браузеру владельца; нужен для кнопки в Telegram и синхронизации отчётов |
+
+Фон включается отдельно: `mailSync.enabled`, `plaudSync.enabled` и граница
+`plaudSync.since` находятся в `data/settings.json`. Почтовый курсор — в PostgreSQL.
+Ключи хранилищ не включают импорт автоматически.
+
+Порядок настройки: [полный запуск](full-startup.md), [архив](../incoming-storage.md).
+Текущая CEO-установка: [команды запуска](ceo-operations.md).
