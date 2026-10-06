@@ -114,6 +114,7 @@ IVA_CEO_NAME=Имя CEO
 ASSISTANT_TIMEZONE=Europe/Minsk
 TELEGRAM_ENABLED=true
 IVA_UPDATE_NOTIFICATIONS_ENABLED=false
+IVA_VAULT_BACKUP_BACKEND=garage
 ```
 
 Часовую зону и имя замените своими. В том же файле должны быть заполнены настройки

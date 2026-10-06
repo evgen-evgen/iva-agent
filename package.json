@@ -28,6 +28,7 @@
     "eval:ceo-memory": "node --env-file-if-exists=.env evals/ceo-memory/benchmark.ts",
     "eval:ceo-memory:grade": "node --env-file-if-exists=.env evals/ceo-memory/grade.ts",
     "eval:ceo-memory:validate": "node evals/ceo-memory/validate.ts",
+    "vault:backup": "node --env-file-if-exists=.env scripts/vault-backup.ts",
     "brain": "node --env-file=.env scripts/memory/brain.ts",
     "doctor": "npm run brain",
     "typecheck": "tsgo",

@@ -22,7 +22,7 @@ import {
 } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CORE_CAP } from "#lib/core-cap.ts";
 
@@ -35,6 +35,7 @@ function runBrain(
   t: TestContext,
   language: string | null,
   agentLanguage: string,
+  backend = "git",
 ): Run {
   const home = mkdtempSync(join(tmpdir(), "iva-brain-alerts-"));
   t.after(() => rmSync(home, { recursive: true, force: true }));
@@ -62,6 +63,7 @@ function runBrain(
       ASSISTANT_VAULT_DIR: vault,
       ASSISTANT_DATA_DIR: dataDir,
       ASSISTANT_TIMEZONE: "UTC",
+      IVA_VAULT_BACKUP_BACKEND: backend,
       AGENT_LANGUAGE: agentLanguage,
     },
   });
@@ -95,6 +97,14 @@ test("brain speaks Russian, says what broke and what to do", (t) => {
   // Ни одной английской строки из прежних алертов.
   assert.doesNotMatch(run.stderr, /vault maintenance partially failed/);
   assert.doesNotMatch(run.stderr, /Vault health dropped/);
+});
+
+test("Garage backup failures alert without falling back to Git", (t) => {
+  const run = runBrain(t, null, "ru", "garage");
+  assert.equal(run.code, 1);
+  assert.match(run.stderr, /Бэкап памяти в Garage не прошёл/u);
+  assert.match(run.stderr, /npm run vault:backup/u);
+  assert.doesNotMatch(run.stderr, /gh auth login|vault нет git remote/u);
 });
 
 test("brain speaks English when the owner picked English", (t) => {
@@ -144,6 +154,7 @@ test("every brain alert goes through the throttle and carries both locales", () 
   );
   assert.deepEqual([...keys].sort(), [
     "authored-tree",
+    "backup-garage",
     "backup-oversize",
     "backup-push",
     "backup-scan",
@@ -225,6 +236,7 @@ exit 0
         ASSISTANT_VAULT_DIR: vault,
         ASSISTANT_DATA_DIR: dataDir,
         ASSISTANT_TIMEZONE: "UTC",
+        IVA_VAULT_BACKUP_BACKEND: "git",
         AGENT_LANGUAGE: "en",
       },
     });
@@ -314,7 +326,14 @@ function runBrainWithoutTree(
   mkdirSync(join(island, "packages/timezone"), { recursive: true });
   writeFileSync(
     join(island, "package.json"),
-    JSON.stringify({ type: "module" }),
+    JSON.stringify({
+      type: "module",
+      imports: { "#lib/feature-flags.ts": "./packages/feature-flags.ts" },
+    }),
+  );
+  copyFileSync(
+    join(ROOT, "agent/lib/feature-flags.ts"),
+    join(island, "packages/feature-flags.ts"),
   );
   copyFileSync(
     join(ROOT, "scripts/memory/brain.ts"),
@@ -399,6 +418,7 @@ function runBrainWithoutTree(
       ASSISTANT_VAULT_DIR: vault,
       ASSISTANT_DATA_DIR: dataDir,
       ASSISTANT_TIMEZONE: "UTC",
+      IVA_VAULT_BACKUP_BACKEND: "git",
       AGENT_LANGUAGE: "ru",
     },
   });
@@ -510,12 +530,14 @@ test("a real corrupt Graph failure produces only its specific alert", (t) => {
   mkdirSync(dataDir, { recursive: true });
   mkdirSync(bin, { recursive: true });
   writeFileSync(historyPath, raw);
-  const uv = "/opt/homebrew/bin/uv";
-  assert.equal(
-    existsSync(uv),
-    true,
-    "the supported test environment provides uv",
-  );
+  const uv = (process.env.PATH ?? "")
+    .split(delimiter)
+    .map((path) => join(path, "uv"))
+    .find((path) => existsSync(path));
+  if (!uv) {
+    t.skip("uv is required for the real Graph test");
+    return;
+  }
   symlinkSync(uv, join(bin, "uv"));
 
   const result = spawnSync(process.execPath, ["scripts/memory/brain.ts"], {
@@ -530,6 +552,7 @@ test("a real corrupt Graph failure produces only its specific alert", (t) => {
       ASSISTANT_VAULT_DIR: vault,
       ASSISTANT_DATA_DIR: dataDir,
       ASSISTANT_TIMEZONE: "UTC",
+      IVA_VAULT_BACKUP_BACKEND: "git",
       AGENT_LANGUAGE: "ru",
     },
   });

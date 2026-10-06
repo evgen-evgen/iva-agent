@@ -1,12 +1,12 @@
-// Brain: deterministic nightly vault care (no LLM) + git commit&push.
+// Brain: deterministic nightly vault care (no LLM) + verified Garage backup.
 // Runs nightly via systemd timer (deploy/iva-brain.{service,timer}).
 //
 //   node --env-file=.env scripts/memory/brain.ts
 //
 // Runs the autograph scripts (graph.health / engine.decay / moc.generate /
-// dedup / link_cleanup) on the vault via `uv run`, then commits and pushes the vault repo.
-// Guards: no git-remote/credentials → alert admin on Telegram (gh auth login + git remote),
-// push is skipped. Health score drop → alert on Telegram. Plain Node orchestration.
+// dedup / link_cleanup) on the vault via `uv run`, then backs memory up to Garage.
+// Garage is the default; IVA_VAULT_BACKUP_BACKEND=git retains the legacy backup path.
+// Backup failures and health-score drops alert the owner. No model calls.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, readFileSync } from "node:fs";
@@ -522,158 +522,205 @@ if (history.state === "valid" && history.entries.length >= 2) {
   if (!healthDropped) cleared("health-drop");
 }
 
-// ── 3. Git commit & push ──
-// Check the complete working-tree snapshot before staging anything. If even one file is
-// unsafe, skip the whole commit: a partial commit would make the nightly backup look complete
-// while silently omitting vault data.
-let oversized: Array<{ path: string; size: number }>;
-try {
-  oversized = scanOversizeWorkingTreeFiles({
-    vaultPath: VAULT,
-    runGit: (args: string[]) => run("git", args),
-  });
-} catch (error) {
-  const detail = error instanceof Error ? error.message : String(error);
-  const message = T(
-    `The file-size check before the backup failed (${detail}). The memory backup is on hold, ` +
-      "so today's memory is not saved off the server yet. On the server run df -h for free space. " +
-      `Then run: cd ${VAULT} && git status`,
-    `Проверка размеров файлов перед бэкапом не прошла (${detail}). Бэкап памяти отложен, ` +
-      "сегодняшняя память ещё не сохранена вне сервера. Выполни на сервере df -h — сколько места. " +
-      `Потом выполни: cd ${VAULT} && git status`,
-  );
-  console.warn(`brain: ${message}`);
-  await alert("backup-scan", "unreadable", message);
-  process.exit(1);
-}
-cleared("backup-scan");
-
-if (oversized.length) {
-  recordSkippedOversize(
-    resolve(VAULT, ".graph/enforce-report.json"),
-    oversized.length,
-  );
-  const lines = oversized.map(({ path, size }) =>
-    T(
-      `File ${path} (${formatMegabytes(size)}) is over the GitHub limit.`,
-      `Файл ${path} (${formatMegabytes(size)}) больше лимита GitHub.`,
-    ),
-  );
-  for (const line of lines) console.warn(`brain: ${line}`);
-  await alert(
-    "backup-oversize",
-    oversized.map(({ path }) => path).join(","),
-    T(
-      `${lines.join("\n")}\nThe memory backup is on hold until these files shrink. New memory ` +
-        "stays on the server only. Shrink them now: /menu → 🛠 Maintenance → 🧹 Vault cleanup.",
-      `${lines.join("\n")}\nБэкап памяти отложен, пока эти файлы не уменьшатся. Новая память ` +
-        "остаётся только на сервере. Ужми их сейчас: /menu → 🛠 Обслуживание → 🧹 Чистка vault.",
-    ),
-  );
-  process.exit(1);
-}
-cleared("backup-oversize");
-
-// Auto-provision a private backup remote via the already-authorized gh CLI instead of
-// nagging nightly: only alert when gh itself can't help (not installed / not logged in).
-function ensureRemote(): string {
-  const existing = run("git", ["remote", "get-url", "origin"]);
-  if (existing.status === 0 && existing.stdout.trim())
-    return existing.stdout.trim();
-
-  if (run("gh", ["auth", "status"]).status !== 0) return ""; // gh missing or not authed
-  run("gh", ["auth", "setup-git"]); // make https push use gh credentials
-
-  // Create the private repo and wire origin in one shot.
-  const create = run("gh", [
-    "repo",
-    "create",
-    "iva-vault",
-    "--private",
-    "--source",
-    VAULT,
-    "--remote",
-    "origin",
-    "--push",
-  ]);
-  if (create.status === 0) {
-    console.log(
-      "brain: created private backup repo iva-vault and attached origin",
+// ── 3. Memory backup ──
+const backupBackend = process.env.IVA_VAULT_BACKUP_BACKEND || "garage";
+if (backupBackend === "garage") {
+  try {
+    const { backupVault, garageBackupStorage } =
+      await import("../lib/vault-backup.ts");
+    const { storage, close } = garageBackupStorage();
+    try {
+      const backup = await backupVault(VAULT, storage);
+      console.log(
+        `brain: Garage backup verified: ${backup.key} (${backup.files} files)`,
+      );
+    } finally {
+      close();
+    }
+    cleared("backup-garage");
+    // Clear legacy warnings when the replacement backup succeeds.
+    for (const key of [
+      "vault-remote",
+      "backup-scan",
+      "backup-oversize",
+      "backup-push",
+    ])
+      cleared(key);
+  } catch (error) {
+    console.error(
+      "brain: Garage memory backup failed:",
+      error instanceof Error ? error.message : String(error),
     );
+    await alert(
+      "backup-garage",
+      "failed",
+      T(
+        "Memory backup to Garage failed. The previous backups remain available. Check the archive configuration and Garage logs, then run npm run vault:backup. Git is not used as a fallback.",
+        "Бэкап памяти в Garage не прошёл. Предыдущие копии сохранены. Проверь настройки архива и логи Garage, затем выполни npm run vault:backup. Автоматического перехода на Git нет.",
+      ),
+    );
+    process.exit(1);
+  }
+} else if (backupBackend === "git") {
+  // ── 3. Git commit & push ──
+  // Check the complete working-tree snapshot before staging anything. If even one file is
+  // unsafe, skip the whole commit: a partial commit would make the nightly backup look complete
+  // while silently omitting vault data.
+  let oversized: Array<{ path: string; size: number }>;
+  try {
+    oversized = scanOversizeWorkingTreeFiles({
+      vaultPath: VAULT,
+      runGit: (args: string[]) => run("git", args),
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    const message = T(
+      `The file-size check before the backup failed (${detail}). The memory backup is on hold, ` +
+        "so today's memory is not saved off the server yet. On the server run df -h for free space. " +
+        `Then run: cd ${VAULT} && git status`,
+      `Проверка размеров файлов перед бэкапом не прошла (${detail}). Бэкап памяти отложен, ` +
+        "сегодняшняя память ещё не сохранена вне сервера. Выполни на сервере df -h — сколько места. " +
+        `Потом выполни: cd ${VAULT} && git status`,
+    );
+    console.warn(`brain: ${message}`);
+    await alert("backup-scan", "unreadable", message);
+    process.exit(1);
+  }
+  cleared("backup-scan");
+
+  if (oversized.length) {
+    recordSkippedOversize(
+      resolve(VAULT, ".graph/enforce-report.json"),
+      oversized.length,
+    );
+    const lines = oversized.map(({ path, size }) =>
+      T(
+        `File ${path} (${formatMegabytes(size)}) is over the GitHub limit.`,
+        `Файл ${path} (${formatMegabytes(size)}) больше лимита GitHub.`,
+      ),
+    );
+    for (const line of lines) console.warn(`brain: ${line}`);
+    await alert(
+      "backup-oversize",
+      oversized.map(({ path }) => path).join(","),
+      T(
+        `${lines.join("\n")}\nThe memory backup is on hold until these files shrink. New memory ` +
+          "stays on the server only. Shrink them now: /menu → 🛠 Maintenance → 🧹 Vault cleanup.",
+        `${lines.join("\n")}\nБэкап памяти отложен, пока эти файлы не уменьшатся. Новая память ` +
+          "остаётся только на сервере. Ужми их сейчас: /menu → 🛠 Обслуживание → 🧹 Чистка vault.",
+      ),
+    );
+    process.exit(1);
+  }
+  cleared("backup-oversize");
+
+  // Auto-provision a private backup remote via the already-authorized gh CLI instead of
+  // nagging nightly: only alert when gh itself can't help (not installed / not logged in).
+  function ensureRemote(): string {
+    const existing = run("git", ["remote", "get-url", "origin"]);
+    if (existing.status === 0 && existing.stdout.trim())
+      return existing.stdout.trim();
+
+    if (run("gh", ["auth", "status"]).status !== 0) return ""; // gh missing or not authed
+    run("gh", ["auth", "setup-git"]); // make https push use gh credentials
+
+    // Create the private repo and wire origin in one shot.
+    const create = run("gh", [
+      "repo",
+      "create",
+      "iva-vault",
+      "--private",
+      "--source",
+      VAULT,
+      "--remote",
+      "origin",
+      "--push",
+    ]);
+    if (create.status === 0) {
+      console.log(
+        "brain: created private backup repo iva-vault and attached origin",
+      );
+      return run("git", ["remote", "get-url", "origin"]).stdout.trim();
+    }
+
+    // Repo probably already exists — just point origin at <user>/iva-vault.
+    const login = run("gh", ["api", "user", "--jq", ".login"]).stdout.trim();
+    if (!login) return "";
+    const url = `https://github.com/${login}/iva-vault.git`;
+    run("git", ["remote", "add", "origin", url]);
     return run("git", ["remote", "get-url", "origin"]).stdout.trim();
   }
 
-  // Repo probably already exists — just point origin at <user>/iva-vault.
-  const login = run("gh", ["api", "user", "--jq", ".login"]).stdout.trim();
-  if (!login) return "";
-  const url = `https://github.com/${login}/iva-vault.git`;
-  run("git", ["remote", "add", "origin", url]);
-  return run("git", ["remote", "get-url", "origin"]).stdout.trim();
-}
+  const remoteUrl = ensureRemote();
+  if (!remoteUrl) {
+    await alert(
+      "vault-remote",
+      "missing",
+      T(
+        "Memory is not backed up: the vault has no git remote. On the server run: gh auth login " +
+          "(repo scope). The nightly brain then creates a private iva-vault repository and turns the backup on.",
+        "Память не бэкапится: у vault нет git remote. Зайди на сервер и выполни: gh auth login " +
+          "(scope repo). Ночной brain сам создаст приватный репозиторий iva-vault и включит бэкап.",
+      ),
+    );
+    console.error("brain: no remote and gh unavailable — push skipped");
+    process.exit(failures.length ? 1 : 0);
+  }
+  cleared("vault-remote");
 
-const remoteUrl = ensureRemote();
-if (!remoteUrl) {
-  await alert(
-    "vault-remote",
-    "missing",
-    T(
-      "Memory is not backed up: the vault has no git remote. On the server run: gh auth login " +
-        "(repo scope). The nightly brain then creates a private iva-vault repository and turns the backup on.",
-      "Память не бэкапится: у vault нет git remote. Зайди на сервер и выполни: gh auth login " +
-        "(scope repo). Ночной brain сам создаст приватный репозиторий iva-vault и включит бэкап.",
-    ),
-  );
-  console.error("brain: no remote and gh unavailable — push skipped");
-  process.exit(failures.length ? 1 : 0);
-}
-cleared("vault-remote");
+  // Перед `git add -A`: в .gitignore вольта должны быть шаблоны временных файлов атомарной
+  // записи, иначе огрызок убитого писателя уедет в историю памяти как карточка. Идемпотентно
+  // и только дозаписью — см. ensureVaultGitignore.
+  if (ensureVaultGitignore(VAULT))
+    console.log("brain: added temp-file patterns to the vault .gitignore");
 
-// Перед `git add -A`: в .gitignore вольта должны быть шаблоны временных файлов атомарной
-// записи, иначе огрызок убитого писателя уедет в историю памяти как карточка. Идемпотентно
-// и только дозаписью — см. ensureVaultGitignore.
-if (ensureVaultGitignore(VAULT))
-  console.log("brain: added temp-file patterns to the vault .gitignore");
-
-run("git", ["add", "-A"]);
-// commit may return non-zero if there is nothing to commit — that is normal.
-run("git", ["commit", "-m", `chore: memory ${today}`]);
-const push = run("git", ["push"]);
-if (push.status !== 0) {
-  const error = classifyGitPushError(push.stderr);
-  const message =
-    error.kind === "oversize"
-      ? T(
-          "Memory backup rejected: the vault history holds a file too big for GitHub. Nothing is " +
-            "lost, but new memory stays on the server only. Clean the history by hand on the " +
-            `server, in ${VAULT}.\n` +
-            "1. Start a clean branch: git checkout --orphan vault-clean\n" +
-            '2. Commit the current files: git add -A && git commit -m "vault"\n' +
-            "3. Replace the remote history: git push --force origin vault-clean:main",
-          "Бэкап памяти отклонён: в истории vault лежит слишком большой файл. Ничего не потеряно, " +
-            "но новая память остаётся только на сервере. Почисти историю вручную на сервере, " +
-            `в ${VAULT}.\n` +
-            "1. Заведи чистую ветку: git checkout --orphan vault-clean\n" +
-            '2. Закоммить текущие файлы: git add -A && git commit -m "vault"\n' +
-            "3. Замени историю на remote: git push --force origin vault-clean:main",
-        )
-      : error.kind === "auth"
+  run("git", ["add", "-A"]);
+  // commit may return non-zero if there is nothing to commit — that is normal.
+  run("git", ["commit", "-m", `chore: memory ${today}`]);
+  const push = run("git", ["push"]);
+  if (push.status !== 0) {
+    const error = classifyGitPushError(push.stderr);
+    const message =
+      error.kind === "oversize"
         ? T(
-            "Memory backup failed: git has no access to the repo. New memory stays on the server " +
-              `only. On the server run: gh auth login. Then check: cd ${VAULT} && git push`,
-            "Бэкап памяти не прошёл: у git нет доступа к репозиторию. Новая память остаётся только " +
-              `на сервере. Выполни на сервере: gh auth login. Потом проверь: cd ${VAULT} && git push`,
+            "Memory backup rejected: the vault history holds a file too big for GitHub. Nothing is " +
+              "lost, but new memory stays on the server only. Clean the history by hand on the " +
+              `server, in ${VAULT}.\n` +
+              "1. Start a clean branch: git checkout --orphan vault-clean\n" +
+              '2. Commit the current files: git add -A && git commit -m "vault"\n' +
+              "3. Replace the remote history: git push --force origin vault-clean:main",
+            "Бэкап памяти отклонён: в истории vault лежит слишком большой файл. Ничего не потеряно, " +
+              "но новая память остаётся только на сервере. Почисти историю вручную на сервере, " +
+              `в ${VAULT}.\n` +
+              "1. Заведи чистую ветку: git checkout --orphan vault-clean\n" +
+              '2. Закоммить текущие файлы: git add -A && git commit -m "vault"\n' +
+              "3. Замени историю на remote: git push --force origin vault-clean:main",
           )
-        : T(
-            `Memory backup failed: ${error.firstLine}. New memory stays on the server only. ` +
-              `On the server run: cd ${VAULT} && git push`,
-            `Бэкап памяти не прошёл: ${error.firstLine}. Новая память остаётся только на сервере. ` +
-              `Выполни на сервере: cd ${VAULT} && git push`,
-          );
-  console.warn(`brain: ${message}`);
-  await alert("backup-push", error.kind, message);
+        : error.kind === "auth"
+          ? T(
+              "Memory backup failed: git has no access to the repo. New memory stays on the server " +
+                `only. On the server run: gh auth login. Then check: cd ${VAULT} && git push`,
+              "Бэкап памяти не прошёл: у git нет доступа к репозиторию. Новая память остаётся только " +
+                `на сервере. Выполни на сервере: gh auth login. Потом проверь: cd ${VAULT} && git push`,
+            )
+          : T(
+              `Memory backup failed: ${error.firstLine}. New memory stays on the server only. ` +
+                `On the server run: cd ${VAULT} && git push`,
+              `Бэкап памяти не прошёл: ${error.firstLine}. Новая память остаётся только на сервере. ` +
+                `Выполни на сервере: cd ${VAULT} && git push`,
+            );
+    console.warn(`brain: ${message}`);
+    await alert("backup-push", error.kind, message);
+    process.exit(1);
+  }
+  cleared("backup-push");
+
+  console.log("brain: legacy Git backup completed");
+} else {
+  console.error(
+    "brain: invalid IVA_VAULT_BACKUP_BACKEND; expected garage or git",
+  );
   process.exit(1);
 }
-cleared("backup-push");
-
-console.log("=== brain: done, vault committed and pushed ===");
+console.log("=== brain: done ===");
 process.exit(failures.length ? 1 : 0);
